@@ -1,0 +1,406 @@
+Settings.rb
+BattleSettings.rb
+==================.rb
+[[ Technical ]].rb
+MKXP_Compatibility.rb
+RubyUtilities.rb
+Intl_Messages.rb
+Input.rb
+PluginManager.rb
+RPG_Sprite.rb
+*separator*
+[[ Debugging ]].rb
+PBDebug.rb
+DebugConsole.rb
+Errors.rb
+Validation.rb
+Deprecation.rb
+*separator*
+[[ Files ]].rb
+FileTests.rb
+FileMixins.rb
+HTTP_Utilities.rb
+================== (1).rb
+[[ Save data ]].rb
+SaveData.rb
+SaveData_Value.rb
+SaveData_Conversion.rb
+Game_SaveValues.rb
+Game_SaveConversions.rb
+================== (2).rb
+[[ Game processing ]].rb
+StartGame.rb
+Scene_Map.rb
+Interpreter.rb
+Interpreter_Commands.rb
+Event_Handlers.rb
+Event_HandlerCollections.rb
+================== (3).rb
+[[ Game classes ]].rb
+Game_Screen.rb
+Game_System.rb
+Game_Picture.rb
+Game_Map.rb
+Game_MapFactory.rb
+Game_Character.rb
+Game_Event.rb
+Game_Player.rb
+Game_CommonEvent.rb
+Game_Follower.rb
+Game_FollowerFactory.rb
+Game_Stats.rb
+*separator*
+[[ Switches and Variables ]].rb
+Game_Temp.rb
+Game_Switches.rb
+Game_Variables.rb
+Game_SelfSwitches.rb
+================== (4).rb
+[[ Sprites ]].rb
+Sprite_Picture.rb
+Sprite_Timer.rb
+Sprite_Character.rb
+Sprite_Reflection.rb
+Sprite_SurfBase.rb
+Spriteset_Global.rb
+Spriteset_Map.rb
+Sprite_AnimationSprite.rb
+Sprite_DynamicShadows.rb
+PictureEx.rb
+ScreenPosHelper.rb
+================== (5).rb
+[[ Map renderer ]].rb
+TilemapRenderer.rb
+TilesetWrapper.rb
+AutotileExpander.rb
+TileDrawingHelper.rb
+================== (6).rb
+[[ Objects and windows ]].rb
+RPG_Cache.rb
+MessageConfig.rb
+Window.rb
+SpriteWindow.rb
+SpriteWindow_text.rb
+SpriteWindow_pictures.rb
+BitmapSprite.rb
+AnimatedBitmap.rb
+Planes.rb
+DrawText.rb
+Messages.rb
+TextEntry.rb
+================== (7).rb
+[[ Audio ]].rb
+Audio.rb
+Audio_Play.rb
+================== (8).rb
+[[ Scenes ]].rb
+Transitions.rb
+EventScene.rb
+================== (9).rb
+[[ Data ]].rb
+GameData.rb
+*separator*
+[[ Hardcoded data ]].rb
+GrowthRate.rb
+GenderRatio.rb
+EggGroup.rb
+BodyShape.rb
+BodyColor.rb
+Habitat.rb
+Evolution.rb
+Stat.rb
+Nature.rb
+Status.rb
+TerrainTag.rb
+Weather.rb
+EncounterType.rb
+Environment.rb
+BattleWeather.rb
+BattleTerrain.rb
+Target.rb
+*separator*
+[[ PBS data ]].rb
+MiscPBSData.rb
+TownMap.rb
+Type.rb
+Ability.rb
+Move.rb
+Item.rb
+BerryPlant.rb
+Species.rb
+Species_files.rb
+SpeciesMetrics.rb
+ShadowPokemon.rb
+Ribbon.rb
+Encounter.rb
+TrainerType.rb
+Trainer.rb
+Metadata.rb
+PlayerMetadata.rb
+MapMetadata.rb
+DungeonTileset.rb
+DungeonParameters.rb
+PhoneMessage.rb
+================== (10).rb
+[[ Battle ]].rb
+*separator*
+[[ Battle ]] (1).rb
+Battle.rb
+Battle_StartAndEnd.rb
+Battle_ExpAndMoveLearning.rb
+Battle_ActionAttacksPriority.rb
+Battle_ActionSwitching.rb
+Battle_ActionUseItem.rb
+Battle_ActionRunning.rb
+Battle_ActionOther.rb
+Battle_CommandPhase.rb
+Battle_AttackPhase.rb
+Battle_EndOfRoundPhase.rb
+*separator*
+[[ Battler ]].rb
+Battle_Battler.rb
+Battler_Initialize.rb
+Battler_ChangeSelf.rb
+Battler_Statuses.rb
+Battler_StatStages.rb
+Battler_AbilityAndItem.rb
+Battler_UseMove.rb
+Battler_UseMoveTargeting.rb
+Battler_UseMoveSuccessChecks.rb
+Battler_UseMoveTriggerEffects.rb
+*separator*
+[[ Move ]].rb
+Battle_Move.rb
+Move_Usage.rb
+Move_UsageCalculations.rb
+Move_BaseEffects.rb
+MoveEffects_Misc.rb
+MoveEffects_BattlerStats.rb
+MoveEffects_BattlerOther.rb
+MoveEffects_MoveAttributes.rb
+MoveEffects_MultiHit.rb
+MoveEffects_Healing.rb
+MoveEffects_Items.rb
+MoveEffects_ChangeMoveEffect.rb
+MoveEffects_SwitchingActing.rb
+*separator*
+[[ Scene ]].rb
+Battle_Scene.rb
+Scene_Initialize.rb
+Scene_ChooseCommands.rb
+Scene_PlayAnimations.rb
+Battle_Scene_Menus.rb
+Battle_Scene_Objects.rb
+Battle_Scene_BaseAnimation.rb
+Battle_Scene_Animations.rb
+Battle_DebugScene.rb
+*separator*
+[[ AI ]].rb
+Battle_AI.rb
+AI_Switch.rb
+AI_UseItem.rb
+AI_MegaEvolve.rb
+AI_ChooseMove.rb
+AI_ChooseMove_GenericEffects.rb
+AI_ChooseMove_OtherScores.rb
+AI_Utilities.rb
+AITrainer.rb
+AIBattler.rb
+AIMove.rb
+*separator*
+[[ AI MoveEffects ]].rb
+AI_MoveEffects_Misc.rb
+AI_MoveEffects_BattlerStats.rb
+AI_MoveEffects_BattlerOther.rb
+AI_MoveEffects_MoveAttributes.rb
+AI_MoveEffects_MultiHit.rb
+AI_MoveEffects_Healing.rb
+AI_MoveEffects_Items.rb
+AI_MoveEffects_ChangeMoveEffect.rb
+AI_MoveEffects_SwitchingActing.rb
+*separator*
+[[ Other battle code ]].rb
+PBEffects.rb
+Battle_ActiveField.rb
+Battle_DamageState.rb
+Battle_Peers.rb
+Battle_CatchAndStoreMixin.rb
+Battle_Clauses.rb
+BattleAnimationPlayer.rb
+Battle_AbilityEffects.rb
+Battle_ItemEffects.rb
+Battle_PokeBallEffects.rb
+*separator*
+[[ Other battle types ]].rb
+SafariBattle.rb
+BugContestBattle.rb
+BattlePalaceBattle.rb
+BattleArenaBattle.rb
+RecordedBattle.rb
+================== (11).rb
+[[ Overworld ]].rb
+Overworld.rb
+Overworld_Metadata.rb
+Overworld_Time.rb
+Overworld_FieldMoves.rb
+Overworld_Fishing.rb
+Overworld_BerryPlants.rb
+Overworld_DayCare.rb
+Overworld_RandomDungeons.rb
+*separator*
+[[ Overworld visuals ]].rb
+Overworld_Weather.rb
+Overworld_Overlays.rb
+Overworld_MapTransitionAnims.rb
+*separator*
+[[ Battle triggering ]].rb
+Overworld_BattleStarting.rb
+Overworld_BattleIntroAnim.rb
+Overworld_WildEncounters.rb
+Overworld_EncounterModifiers.rb
+Overworld_RoamingPokemon.rb
+================== (12).rb
+[[ Items ]].rb
+Item_Utilities.rb
+Item_Effects.rb
+Item_BattleEffects.rb
+Item_Phone.rb
+Item_PokeRadar.rb
+Item_Mail.rb
+Item_Sprites.rb
+PokemonBag.rb
+================== (13).rb
+[[ Pokemon ]].rb
+Pokemon.rb
+Pokemon_MegaEvolution.rb
+Pokemon_ShadowPokemon.rb
+Pokemon_Move.rb
+Pokemon_Owner.rb
+*separator*
+[[ Pokemon-related ]].rb
+FormHandlers.rb
+ShadowPokemon_Other.rb
+Pokemon_Sprites.rb
+PokemonStorage.rb
+================== (14).rb
+[[ Trainers and player ]].rb
+Trainer (1).rb
+Trainer_LoadAndNew.rb
+Trainer_Sprites.rb
+Player.rb
+Player_Pokedex.rb
+================== (15).rb
+[[ UI ]].rb
+UI_PauseMenu.rb
+UI_Pokedex_Menu.rb
+UI_Pokedex_Main.rb
+UI_Pokedex_Entry.rb
+UI_Party.rb
+UI_Summary.rb
+UI_Bag.rb
+UI_Pokegear.rb
+UI_RegionMap.rb
+UI_Phone.rb
+UI_Jukebox.rb
+UI_TrainerCard.rb
+UI_Load.rb
+UI_Save.rb
+UI_Options.rb
+UI_ReadyMenu.rb
+UI_PokemonStorage.rb
+UI_ItemStorage.rb
+UI_PC.rb
+UI_PokeMart.rb
+UI_BattlePointShop.rb
+UI_MoveRelearner.rb
+UI_PurifyChamber.rb
+UI_MysteryGift.rb
+UI_TextEntry.rb
+*separator*
+[[ Non-interactive UI ]].rb
+UI_SplashesAndTitleScreen.rb
+UI_Controls.rb
+UI_EggHatching.rb
+UI_Evolution.rb
+UI_Trading.rb
+UI_HallOfFame.rb
+UI_Credits.rb
+================== (16).rb
+[[ Minigames ]].rb
+Minigame_Duel.rb
+Minigame_TripleTriad.rb
+Minigame_SlotMachine.rb
+Minigame_VoltorbFlip.rb
+Minigame_Lottery.rb
+Minigame_Mining.rb
+Minigame_TilePuzzles.rb
+================== (17).rb
+[[ Alternate battle modes ]].rb
+SafariZone.rb
+BugContest.rb
+*separator*
+[[ Battle Frontier ]].rb
+Challenge_BattleChallenge.rb
+Challenge_Data.rb
+Challenge_ChooseFoes.rb
+Challenge_Battles.rb
+UI_BattleSwap.rb
+*separator*
+[[ Battle Frontier rules ]].rb
+Challenge_ChallengeRules.rb
+Challenge_Rulesets.rb
+Challenge_EntryRestrictions.rb
+Challenge_LevelAdjustment.rb
+Challenge_BattleRules.rb
+*separator*
+[[ Battle Frontier generator ]].rb
+ChallengeGenerator_Data.rb
+ChallengeGenerator_Pokemon.rb
+ChallengeGenerator_Trainers.rb
+ChallengeGenerator_BattleSim.rb
+================== (18).rb
+[[ Utilities ]].rb
+Utilities.rb
+Utilities_Pokemon.rb
+Utilities_BattleAudio.rb
+================== (19).rb
+[[ Debug ]].rb
+Editor_Utilities.rb
+Editor_DataTypes.rb
+Editor_Listers.rb
+*separator*
+[[ Editor screens ]].rb
+EditorScreens.rb
+EditorScreens_TerrainTags.rb
+EditorScreens_MapConnections.rb
+EditorScreens_SpritePositioning.rb
+*separator*
+[[ Animation editor ]].rb
+AnimEditor_SceneElements.rb
+AnimEditor_ControlsButtons.rb
+AnimEditor_Interpolation.rb
+AnimEditor_ExportImport.rb
+AnimEditor_Functions.rb
+*separator*
+[[ Debug menus ]].rb
+Debug_Menus.rb
+Debug_MenuCommands.rb
+Debug_MenuExtraCode.rb
+Debug_BattleCommands.rb
+Debug_BattlePkmnCommands.rb
+Debug_BattleExtraCode.rb
+Debug_PokemonCommands.rb
+Debug_FilenameUpdater.rb
+================== (20).rb
+[[ Compiler ]].rb
+Compiler.rb
+Compiler_CompilePBS.rb
+Compiler_WritePBS.rb
+Compiler_MapsAndEvents.rb
+================== (21).rb
+================== (22).rb
+[[ Main ]].rb
+Main.rb
+Build
+Release
+Release/Pokemon_FRLG_Multiplayer_v1.0.0_20251107_183045

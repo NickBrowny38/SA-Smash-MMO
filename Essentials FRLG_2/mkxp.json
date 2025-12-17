@@ -1,0 +1,19 @@
+{
+    "windowTitle": "Essentials FRLG",
+    "defScreenW": 800,
+    "defScreenH": 600,
+    "bindingNames": {
+      "c": "Use",
+      "b": "Back",
+      "a": "Action",
+      "x": "JumpUp",
+      "y": "JumpDown",
+      "z": "Special",
+      "l": "(unused)",
+      "r": "(unused)"
+    },
+    "midiSoundFont": "soundfont.sf2",
+    "subImageFix": true,
+    "vsync": true,
+    "syncToRefreshrate": true
+}

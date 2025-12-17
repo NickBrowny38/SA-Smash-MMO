@@ -1,0 +1,5 @@
+Name       = Multiplayer
+Version    = 0.1.7
+Essentials = 21,21.1
+Link       = https://github.com/pokemon-essentials-multiplayer
+Credits    = YaUhYeah
