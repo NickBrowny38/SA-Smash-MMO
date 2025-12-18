@@ -163,6 +163,10 @@ class Sprite_RemotePlayer < Sprite_Character
     end
 
     create_username_sprite(viewport)
+    @last_username_x = nil
+    @last_username_y = nil
+    @last_username_opacity = nil
+    @last_username_visible = nil
   end
 
   def create_username_sprite(viewport)
@@ -194,10 +198,23 @@ class Sprite_RemotePlayer < Sprite_Character
   def update_username_position
     return unless @username_sprite
 
-    @username_sprite.x = self.x
-    @username_sprite.y  =  self.y - 45
-    @username_sprite.opacity = self.opacity
-    @username_sprite.visible = self.visible
+    # Only update username sprite properties if they've actually changed
+    if @last_username_x != self.x || @last_username_y != self.y
+      @username_sprite.x = self.x
+      @username_sprite.y = self.y - 45
+      @last_username_x = self.x
+      @last_username_y = self.y
+    end
+
+    if @last_username_opacity != self.opacity
+      @username_sprite.opacity = self.opacity
+      @last_username_opacity = self.opacity
+    end
+
+    if @last_username_visible != self.visible
+      @username_sprite.visible = self.visible
+      @last_username_visible = self.visible
+    end
   end
 
   def dispose
@@ -245,8 +262,6 @@ class MultiplayerRemotePlayerManager
       @remote_players.clear
       $multiplayer_current_map_id = current_map_id
 
-      Graphics.update
-
     end
 
     all_remote_players = pbMultiplayerClient.remote_players
@@ -257,11 +272,9 @@ class MultiplayerRemotePlayerManager
       if !player_data
         puts "[MULTIPLAYER] Removing player #{player_id} - left server"
         remove_remote_player(player_id)
-        Graphics.update
       elsif player_data[:map_id] != current_map_id
         puts "[MULTIPLAYER] Removing player #{@remote_players[player_id].username} (#{player_id}) - on map #{player_data[:map_id]}, we're on #{current_map_id}"
         remove_remote_player(player_id)
-        Graphics.update
       end
     end
 
@@ -299,11 +312,9 @@ class MultiplayerRemotePlayerManager
       if !player_data
         puts "[MULTIPLAYER] FINAL VALIDATION: Removing sprite #{player_id} - player no longer exists"
         remove_remote_player(player_id)
-        Graphics.update
       elsif player_data[:map_id] != current_map_id
         puts "[MULTIPLAYER] FINAL VALIDATION: Removing sprite #{player_id} - on map #{player_data[:map_id]}, we're on #{current_map_id}"
         remove_remote_player(player_id)
-        Graphics.update
       end
     end
   end
