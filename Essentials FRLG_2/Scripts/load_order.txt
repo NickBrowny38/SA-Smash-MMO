@@ -401,6 +401,3 @@ Compiler_MapsAndEvents.rb
 ================== (22).rb
 [[ Main ]].rb
 Main.rb
-Build
-Release
-Release/Pokemon_FRLG_Multiplayer_v1.0.0_20251107_183045
