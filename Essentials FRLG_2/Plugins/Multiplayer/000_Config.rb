@@ -1,5 +1,5 @@
 module MultiplayerConfig
-  SERVER_HOST = "46.250.245.149"
+  SERVER_HOST = "38.46.216.99"
 
   SERVER_PORT = 5000
 
