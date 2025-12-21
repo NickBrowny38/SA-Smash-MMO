@@ -325,7 +325,7 @@ def ensure_multiplayer_battle_patch!
           # OPPONENT needs to switch - wait for their choice
           puts "[MP SYNC] Waiting for opponent to select replacement Pokemon..."
 
-          @scene.pbDisplayPaused("Waiting for opponent to choose their next Pokémon...")
+          @scene.pbDisplay("Waiting for opponent to choose their next Pokémon...") if @scene
 
           # Reset opponent switch data
           $multiplayer_opponent_switch_received = false
