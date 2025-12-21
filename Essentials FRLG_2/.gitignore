@@ -1,0 +1,9 @@
+.claude/
+
+# Multiplayer credentials
+multiplayer_credentials.dat
+*.dat
+
+# Plugin scripts
+PluginScripts.rxdata
+Data/PluginScripts.rxdata

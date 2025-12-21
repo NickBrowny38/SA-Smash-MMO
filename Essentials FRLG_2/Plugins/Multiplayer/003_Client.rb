@@ -582,6 +582,12 @@ class MultiplayerClient
     when "battle_opponent_choice"
       handle_battle_opponent_choice_msg(msg_data)
 
+    when "battle_ready"
+      handle_battle_ready_msg(msg_data)
+
+    when "battle_switch"
+      handle_battle_switch_msg(msg_data)
+
     when "trade_offer"
       puts "[CLIENT DEBUG] Received 'trade_offer' message type"
       handle_trade_offer_received(msg_data)
@@ -1346,6 +1352,25 @@ class MultiplayerClient
     }))
   end
 
+  def send_battle_ready(battle_id, opponent_id, rng_seed)
+    return unless @connected
+    send_message(MultiplayerProtocol.create_message('battle_ready', {
+      battle_id: battle_id,
+      opponent_id: opponent_id,
+      rng_seed: rng_seed
+    }))
+  end
+
+  def send_battle_switch(battle_id, opponent_id, battler_index, party_index)
+    return unless @connected
+    send_message(MultiplayerProtocol.create_message('battle_switch', {
+      battle_id: battle_id,
+      opponent_id: opponent_id,
+      battler_index: battler_index,
+      party_index: party_index
+    }))
+  end
+
   def accept_battle_request(from_id, battle_format = "Single Battle")
     send_battle_accept(from_id, battle_format)
   end
@@ -1514,6 +1539,31 @@ class MultiplayerClient
     if defined?(pbMultiplayerBattleManager) && pbMultiplayerBattleManager.active_mp_battle
       pbMultiplayerBattleManager.receive_opponent_battle_choice(choice)
     end
+  end
+
+  def handle_battle_ready_msg(data)
+    battle_id = data[:battle_id] || data['battle_id']
+    rng_seed = data[:rng_seed] || data['rng_seed']
+
+    puts "[BATTLE SYNC] Received opponent's battle ready signal for battle ##{battle_id}, RNG seed: #{rng_seed}"
+
+    if defined?(pbMultiplayerBattleManager)
+      pbMultiplayerBattleManager.receive_opponent_battle_ready(rng_seed)
+    end
+  end
+
+  def handle_battle_switch_msg(data)
+    battle_id = data[:battle_id] || data['battle_id']
+    party_index = data[:party_index] || data['party_index']
+
+    puts "[BATTLE SYNC] Received opponent's switch choice for battle ##{battle_id}: party slot #{party_index}"
+
+    # Set global variables that the battle sync checks for
+    $multiplayer_opponent_switch_received = true
+    $multiplayer_opponent_switch_data = {
+      battle_id: battle_id,
+      party_index: party_index
+    }
   end
 
   def handle_trade_offer_received(data)

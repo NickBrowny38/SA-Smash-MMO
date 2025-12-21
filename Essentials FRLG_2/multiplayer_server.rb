@@ -375,6 +375,12 @@ class MultiplayerServer
     when :battle_state, "battle_state"
       handle_battle_state(client_id, message[:data])
 
+    when :battle_ready, "battle_ready"
+      handle_battle_ready(client_id, message[:data])
+
+    when :battle_switch, "battle_switch"
+      handle_battle_switch(client_id, message[:data])
+
     when :battle_complete, "battle_complete"
       handle_battle_complete(client_id, message[:data])
 
@@ -1990,6 +1996,92 @@ class MultiplayerServer
       # Clear states
       battle[:states] = {}
     end
+  end
+
+  def handle_battle_ready(client_id, data)
+    battle_id = data[:battle_id] || data['battle_id']
+    opponent_id = data[:opponent_id] || data['opponent_id']
+    rng_seed = data[:rng_seed] || data['rng_seed']
+
+    battle = @active_battles[battle_id]
+    unless battle
+      @logger.warn "[BATTLE SYNC] Ready signal for unknown battle ##{battle_id}"
+      return
+    end
+
+    # Initialize ready_signals hash if it doesn't exist
+    battle[:ready_signals] ||= {}
+
+    # Store this player's ready signal
+    battle[:ready_signals][client_id] = {
+      rng_seed: rng_seed,
+      received_at: Time.now
+    }
+
+    @logger.info "[BATTLE SYNC] Battle ##{battle_id}: Player #{client_id} ready with RNG seed: #{rng_seed}"
+
+    # Check if both players are ready
+    if battle[:ready_signals][battle[:player1_id]] && battle[:ready_signals][battle[:player2_id]]
+      seed1 = battle[:ready_signals][battle[:player1_id]][:rng_seed]
+      seed2 = battle[:ready_signals][battle[:player2_id]][:rng_seed]
+
+      # Verify RNG seeds match
+      if seed1 == seed2
+        @logger.info "[BATTLE SYNC] Battle ##{battle_id}: Both players ready with matching RNG seed: #{seed1}"
+
+        # Send ready confirmation to both players
+        send_to_client(battle[:player1_id], {
+          type: "battle_ready",
+          data: {
+            battle_id: battle_id,
+            rng_seed: seed2
+          }
+        })
+
+        send_to_client(battle[:player2_id], {
+          type: "battle_ready",
+          data: {
+            battle_id: battle_id,
+            rng_seed: seed1
+          }
+        })
+      else
+        @logger.error "[BATTLE SYNC] Battle ##{battle_id}: RNG SEED MISMATCH! Seed1: #{seed1}, Seed2: #{seed2}"
+        send_error(battle[:player1_id], "Battle initialization failed - RNG seed mismatch")
+        send_error(battle[:player2_id], "Battle initialization failed - RNG seed mismatch")
+        end_battle(battle_id)
+      end
+
+      # Clear ready signals
+      battle[:ready_signals] = {}
+    end
+  end
+
+  def handle_battle_switch(client_id, data)
+    battle_id = data[:battle_id] || data['battle_id']
+    opponent_id = data[:opponent_id] || data['opponent_id']
+    battler_index = data[:battler_index] || data['battler_index']
+    party_index = data[:party_index] || data['party_index']
+
+    battle = @active_battles[battle_id]
+    unless battle
+      @logger.warn "[BATTLE SYNC] Switch for unknown battle ##{battle_id}"
+      return
+    end
+
+    @logger.info "[BATTLE SYNC] Battle ##{battle_id}: Player #{client_id} switched to party slot #{party_index}"
+
+    # Forward the switch choice to the opponent
+    send_to_client(opponent_id, {
+      type: "battle_switch",
+      data: {
+        battle_id: battle_id,
+        battler_index: battler_index,
+        party_index: party_index
+      }
+    })
+
+    @logger.info "[BATTLE SYNC] Battle ##{battle_id}: Switch forwarded to opponent #{opponent_id}"
   end
 
   def states_match?(state1, state2)
