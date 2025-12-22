@@ -70,7 +70,6 @@ end
 alias multiplayer_original_pbItemBall pbItemBall
 
 def pbItemBall(item, quantity = 1)
-  pbMEPlay("Obtained an item")
   result = multiplayer_original_pbItemBall(item, quantity)
   if result && pbIsMultiplayerMode? && $game_map && $game_map.events[@event_id]
     pbMultiplayerItemPersistence.register_pickup($game_map.map_id, @event_id)

@@ -660,7 +660,7 @@ def pbItemBall(item, quantity = 1)
   pocket = item.pocket
   move = item.move
   if $bag.add(item, quantity)   # If item can be picked up
-    meName = (item.is_key_item?) ? "Key item get" : "Item get"
+    meName = (item.is_key_item?) ? "Obtained a Key Item" : "Obtained an Item"
     if item == :DNASPLICERS
       pbMessage("\\me[#{meName}]" + _INTL("You found \\c[1]{1}\\c[0]!", itemname) + "\\wtnp[40]")
     elsif item.is_machine?   # TM or HM
