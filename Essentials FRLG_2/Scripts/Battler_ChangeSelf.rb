@@ -14,10 +14,9 @@ class Battle::Battler
     @battle.scene.pbHPChanged(self, oldHP, anim) if anyAnim && amt > 0
     if amt > 0 && registerDamage
       @droppedBelowHalfHP = true if @hp < @totalhp / 2 && @hp + amt >= @totalhp / 2
-
       if @hp <= @totalhp / 4 && @hp + amt >= @totalhp / 4
         if pbOwnedByPlayer?
-          if !@droppedBelowQuarterHP
+          if !@droppedBelowQuarterHP && @hp > 0
             pbSEPlay("Low Health")
           end
         end
@@ -41,7 +40,7 @@ class Battle::Battler
     raise _INTL("HP greater than total HP") if @hp > @totalhp
     @battle.scene.pbHPChanged(self, oldHP, anim) if anyAnim && amt > 0
     @droppedBelowHalfHP = false if @hp >= @totalhp / 2
-    @droppedBelowQuarterHP = false if @hp >= @totalhp / 4
+    @droppedBelowQuarterHP = false if @hp > @totalhp / 4
     return amt
   end
 
