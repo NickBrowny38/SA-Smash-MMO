@@ -320,6 +320,7 @@ class Battle::Scene::PokemonDataBox < Sprite
     hpColor = 0                                      # Green bar
     hpColor = 1 if self.hp <= @battler.totalhp / 2   # Yellow bar
     hpColor = 2 if self.hp <= @battler.totalhp / 4   # Red bar
+    
     @hpBar.src_rect.y = hpColor * @hpBarBitmap.height / 3
   end
 

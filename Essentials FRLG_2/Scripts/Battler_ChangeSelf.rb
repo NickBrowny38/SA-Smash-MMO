@@ -14,9 +14,19 @@ class Battle::Battler
     @battle.scene.pbHPChanged(self, oldHP, anim) if anyAnim && amt > 0
     if amt > 0 && registerDamage
       @droppedBelowHalfHP = true if @hp < @totalhp / 2 && @hp + amt >= @totalhp / 2
+
+      if @hp <= @totalhp / 4 && @hp + amt >= @totalhp / 4
+        if pbOwnedByPlayer?
+          if !@droppedBelowQuarterHP
+            pbSEPlay("Low Health")
+          end
+        end
+        @droppedBelowQuarterHP = true 
+      end
       @tookDamageThisRound = true
       @tookMoveDamageThisRound = true
     end
+
     return amt
   end
 
@@ -31,6 +41,7 @@ class Battle::Battler
     raise _INTL("HP greater than total HP") if @hp > @totalhp
     @battle.scene.pbHPChanged(self, oldHP, anim) if anyAnim && amt > 0
     @droppedBelowHalfHP = false if @hp >= @totalhp / 2
+    @droppedBelowQuarterHP = false if @hp >= @totalhp / 4
     return amt
   end
 
@@ -53,12 +64,14 @@ class Battle::Battler
 
   def pbTakeEffectDamage(amt, show_anim = true)
     @droppedBelowHalfHP = false
+    @droppedBelowQuarterHP = false
     hp_lost = pbReduceHP(amt, show_anim)
     yield hp_lost if block_given?   # Show message
     pbItemHPHealCheck
     pbAbilitiesOnDamageTaken
     pbFaint if fainted?
     @droppedBelowHalfHP = false
+    @droppedBelowQuarterHP = false
   end
 
   def pbFaint(showMessage = true)
