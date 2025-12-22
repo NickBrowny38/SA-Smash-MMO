@@ -8,10 +8,7 @@
 # 3. Multiple battler choice synchronization
 # 4. Proper handling of different choice types (UseMove, SwitchOut, UseItem, etc.)
 
-puts "[MP Battle Sync Fix] Replacing battle patch with improved synchronization..."
-
-# Reset the patch flag so we can reinstall it
-$multiplayer_battle_patch_applied = false
+puts "[MP Battle Sync Fix] Loading improved battle synchronization..."
 
 def ensure_multiplayer_battle_patch!
   return if $multiplayer_battle_patch_applied
@@ -20,13 +17,10 @@ def ensure_multiplayer_battle_patch!
 
   begin
     Battle.class_eval do
-      # Remove old alias if it exists
-      if method_defined?(:multiplayer_original_pbCommandPhaseLoop)
-        remove_method :pbCommandPhaseLoop
-        alias pbCommandPhaseLoop multiplayer_original_pbCommandPhaseLoop
+      # Only alias if not already aliased
+      unless method_defined?(:multiplayer_original_pbCommandPhaseLoop)
+        alias multiplayer_original_pbCommandPhaseLoop pbCommandPhaseLoop
       end
-
-      alias multiplayer_original_pbCommandPhaseLoop pbCommandPhaseLoop
 
       def pbCommandPhaseLoop(isPlayer)
         # Non-multiplayer battles use original code
@@ -291,7 +285,9 @@ def ensure_multiplayer_battle_patch!
       end
 
       # Override pbSwitchInBetween to synchronize Pokemon replacements when one faints
-      alias multiplayer_original_pbSwitchInBetween pbSwitchInBetween if method_defined?(:pbSwitchInBetween)
+      unless method_defined?(:multiplayer_original_pbSwitchInBetween)
+        alias multiplayer_original_pbSwitchInBetween pbSwitchInBetween
+      end
 
       def pbSwitchInBetween(idxBattler, checkLaxOnly = false, canCancel = false)
         # Non-multiplayer battles use original code
