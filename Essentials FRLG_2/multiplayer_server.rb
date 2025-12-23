@@ -381,6 +381,9 @@ class MultiplayerServer
     when :battle_switch, "battle_switch"
       handle_battle_switch(client_id, message[:data])
 
+    when :battle_forfeit, "battle_forfeit"
+      handle_battle_forfeit_request(client_id, message[:data])
+
     when :battle_complete, "battle_complete"
       handle_battle_complete(client_id, message[:data])
 
@@ -2082,6 +2085,43 @@ class MultiplayerServer
     })
 
     @logger.info "[BATTLE SYNC] Battle ##{battle_id}: Switch forwarded to opponent #{opponent_id}"
+  end
+
+  def handle_battle_forfeit_request(client_id, data)
+    battle_id = data[:battle_id] || data['battle_id']
+    opponent_id = data[:opponent_id] || data['opponent_id']
+    username = data[:username] || data['username'] || "Unknown Player"
+
+    client_info = @clients[client_id]
+    opponent_client = @clients[opponent_id]
+
+    @logger.info "[BATTLE FORFEIT] Battle ##{battle_id}: #{username} forfeited"
+
+    # Notify opponent that they won by forfeit
+    if opponent_client
+      send_to_client(opponent_id, {
+        type: "battle_forfeit",
+        data: {
+          battle_id: battle_id,
+          forfeiter_username: username,
+          message: "#{username} forfeited - you win!"
+        }
+      })
+      @logger.info "[BATTLE FORFEIT] Notified opponent #{opponent_id} of forfeit"
+    end
+
+    # Process battle result (opponent wins, forfeiting player loses)
+    if opponent_client && opponent_client[:player_id] && client_info && client_info[:player_id]
+      begin
+        update_battle_result(opponent_client[:player_id], client_info[:player_id])
+        @logger.info "[BATTLE FORFEIT] Battle result recorded: #{opponent_client[:username]} wins, #{username} loses"
+      rescue => e
+        @logger.error "[BATTLE FORFEIT] Failed to record battle result: #{e.message}"
+      end
+    end
+
+    # Remove battle from active battles
+    @active_battles.delete(battle_id) if @active_battles[battle_id]
   end
 
   def states_match?(state1, state2)

@@ -1371,6 +1371,16 @@ class MultiplayerClient
     }))
   end
 
+  def send_battle_forfeit(battle_id, opponent_id)
+    return unless @connected
+    send_message(MultiplayerProtocol.create_message('battle_forfeit', {
+      battle_id: battle_id,
+      opponent_id: opponent_id,
+      username: $player.name
+    }))
+    puts "[BATTLE FORFEIT] Sent forfeit notification for battle ##{battle_id}"
+  end
+
   def accept_battle_request(from_id, battle_format = "Single Battle")
     send_battle_accept(from_id, battle_format)
   end

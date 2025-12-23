@@ -68,6 +68,22 @@ def ensure_multiplayer_battle_patch!
                   return
                 end
 
+                # HANDLE RUN AS FORFEIT IN MULTIPLAYER BATTLES
+                if choice[0] == :Run
+                  puts "[MP SYNC] Player chose to forfeit the battle!"
+                  @scene.pbDisplayMessage("You forfeited the battle!") if @scene
+
+                  # Send forfeit notification to opponent
+                  if pbMultiplayerConnected?
+                    $multiplayer_client.send_battle_forfeit(@multiplayer_battle_id, @multiplayer_opponent_id)
+                  end
+
+                  # End battle as loss
+                  @decision = 2  # 2 = loss
+                  pbAbort
+                  return
+                end
+
                 # Serialize choice data
                 choice_index = choice[1].is_a?(Integer) ? choice[1] : choice[1].to_s
                 choice_hash = {
