@@ -56,12 +56,13 @@ GameData::Environment.register({
   :battle_base => "water"
 })
 
+=begin
 GameData::Environment.register({
   :id          => :Puddle,
   :name        => _INTL("Puddle"),
   :battle_base => "puddle"
 })
-
+=end
 GameData::Environment.register({
   :id   => :Underwater,
   :name => _INTL("Underwater")
@@ -77,12 +78,13 @@ GameData::Environment.register({
   :name => _INTL("Rock")
 })
 
+=begin
 GameData::Environment.register({
   :id          => :Sand,
   :name        => _INTL("Sand"),
   :battle_base => "sand"
 })
-
+=end
 GameData::Environment.register({
   :id   => :Forest,
   :name => _INTL("Forest")
