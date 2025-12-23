@@ -63,8 +63,9 @@ def ensure_multiplayer_battle_patch!
                 if choice[0] == :UseItem
                   puts "[MP SYNC] ERROR: Items are not allowed in multiplayer battles!"
                   @scene.pbDisplayMessage("Items cannot be used in multiplayer battles!") if @scene
-                  # Force the player to make a different choice
-                  pbAbort
+                  # Clear the invalid choice and restart command phase
+                  @choices[i] = [:None, 0, nil, -1]
+                  multiplayer_original_pbCommandPhaseLoop(isPlayer)
                   return
                 end
 
@@ -88,7 +89,9 @@ def ensure_multiplayer_battle_patch!
                     return
                   else
                     puts "[MP SYNC] Forfeit cancelled - player must choose another action"
-                    # Return to command menu without sending choices
+                    # Clear the choice and restart command phase
+                    @choices[i] = [:None, 0, nil, -1]
+                    multiplayer_original_pbCommandPhaseLoop(isPlayer)
                     return
                   end
                 end
