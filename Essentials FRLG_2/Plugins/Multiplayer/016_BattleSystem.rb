@@ -232,6 +232,10 @@ class MultiplayerBattleManager
   def in_battle?
     @active_battle
   end
+
+  def active_mp_battle
+    @active_battle
+  end
 end
 
 class MultiplayerBattleRequestUI
