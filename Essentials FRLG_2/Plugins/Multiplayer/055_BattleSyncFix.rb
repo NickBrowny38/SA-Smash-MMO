@@ -70,18 +70,27 @@ def ensure_multiplayer_battle_patch!
 
                 # HANDLE RUN AS FORFEIT IN MULTIPLAYER BATTLES
                 if choice[0] == :Run
-                  puts "[MP SYNC] Player chose to forfeit the battle!"
-                  @scene.pbDisplayMessage("You forfeited the battle!") if @scene
+                  puts "[MP SYNC] Player attempting to forfeit the battle!"
 
-                  # Send forfeit notification to opponent
-                  if pbMultiplayerConnected?
-                    $multiplayer_client.send_battle_forfeit(@multiplayer_battle_id, @multiplayer_opponent_id)
+                  # Ask for confirmation
+                  if @scene && @scene.pbDisplayConfirm("Do you want to forfeit this battle?\nYou will lose if you forfeit.")
+                    puts "[MP SYNC] Player confirmed forfeit!"
+                    @scene.pbDisplayMessage("You forfeited the battle!")
+
+                    # Send forfeit notification to opponent
+                    if pbMultiplayerConnected?
+                      $multiplayer_client.send_battle_forfeit(@multiplayer_battle_id, @multiplayer_opponent_id)
+                    end
+
+                    # End battle as loss
+                    @decision = 2  # 2 = loss
+                    pbAbort
+                    return
+                  else
+                    puts "[MP SYNC] Forfeit cancelled - player must choose another action"
+                    # Return to command menu without sending choices
+                    return
                   end
-
-                  # End battle as loss
-                  @decision = 2  # 2 = loss
-                  pbAbort
-                  return
                 end
 
                 # Serialize choice data
@@ -469,6 +478,21 @@ def ensure_multiplayer_battle_patch!
         end
 
         return multiplayer_original_pbItemMenu(idxBattler, firstAction)
+      end
+
+      # Override pbRegisterItem to completely disable items in multiplayer
+      unless method_defined?(:multiplayer_original_pbRegisterItem)
+        alias multiplayer_original_pbRegisterItem pbRegisterItem
+      end
+
+      def pbRegisterItem(idxBattler, item, idxTarget = -1, idxMove = -1)
+        # Block item registration in multiplayer battles
+        if @multiplayer_battle_id
+          puts "[MP BATTLE] ERROR: Attempted to use item #{item} - items disabled in multiplayer!"
+          return false
+        end
+
+        return multiplayer_original_pbRegisterItem(idxBattler, item, idxTarget, idxMove)
       end
     end
 
