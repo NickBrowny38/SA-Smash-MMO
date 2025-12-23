@@ -59,10 +59,37 @@ def ensure_multiplayer_battle_patch!
 
               choice = @choices[i]
               if choice && choice[0]
+                # BLOCK ITEMS IN MULTIPLAYER BATTLES
+                if choice[0] == :UseItem
+                  puts "[MP SYNC] ERROR: Items are not allowed in multiplayer battles!"
+                  @scene.pbDisplayMessage("Items cannot be used in multiplayer battles!") if @scene
+                  # Force the player to make a different choice
+                  pbAbort
+                  return
+                end
+
+                # HANDLE RUN AS FORFEIT IN MULTIPLAYER BATTLES
+                if choice[0] == :Run
+                  puts "[MP SYNC] Player chose to forfeit the battle!"
+                  @scene.pbDisplayMessage("You forfeited the battle!") if @scene
+
+                  # Send forfeit notification to opponent
+                  if pbMultiplayerConnected?
+                    $multiplayer_client.send_battle_forfeit(@multiplayer_battle_id, @multiplayer_opponent_id)
+                  end
+
+                  # End battle as loss
+                  @decision = 2  # 2 = loss
+                  pbAbort
+                  return
+                end
+
+                # Serialize choice data
+                choice_index = choice[1].is_a?(Integer) ? choice[1] : choice[1].to_s
                 choice_hash = {
                   battler_index: i,
                   type: choice[0].to_s,
-                  index: choice[1].to_i,  # Move index OR Pokemon party index for switches
+                  index: choice_index,  # Move index OR Pokemon party index for switches
                   target_index: choice[3] ? choice[3].to_i : -1
                 }
 
@@ -427,6 +454,21 @@ def ensure_multiplayer_battle_patch!
           pbAbort
           return -1
         end
+      end
+
+      # Override pbItemMenu to block items in multiplayer battles
+      unless method_defined?(:multiplayer_original_pbItemMenu)
+        alias multiplayer_original_pbItemMenu pbItemMenu
+      end
+
+      def pbItemMenu(idxBattler, firstAction)
+        # Block items in multiplayer battles
+        if @multiplayer_battle_id
+          pbDisplay("Items cannot be used in multiplayer battles!")
+          return false
+        end
+
+        return multiplayer_original_pbItemMenu(idxBattler, firstAction)
       end
     end
 
