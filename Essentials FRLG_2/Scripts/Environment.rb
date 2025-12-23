@@ -108,6 +108,12 @@ GameData::Environment.register({
 })
 
 GameData::Environment.register({
+  :id          => :Interior,
+  :name        => _INTL("Interior"),
+  :battle_base => "interior"
+})
+
+GameData::Environment.register({
   :id   => :Volcano,
   :name => _INTL("Volcano")
 })

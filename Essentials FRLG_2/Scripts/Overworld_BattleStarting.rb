@@ -277,7 +277,7 @@ module BattleCreationHelperMethods
       back = $game_map.metadata.battle_background
       backdrop = back if back && back != ""
     end
-    backdrop = "indoor1" if !backdrop
+    backdrop = "interior" if !backdrop
     battle.backdrop = backdrop
     # Choose a name for bases depending on environment
     if battleRules["base"].nil?

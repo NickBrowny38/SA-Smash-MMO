@@ -48,9 +48,9 @@ class SpritePositioner
     @sprites = {}
     @viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
     @viewport.z = 99999
-    battlebg   = "Graphics/Battlebacks/indoor1_bg"
-    playerbase = "Graphics/Battlebacks/indoor1_base0"
-    enemybase  = "Graphics/Battlebacks/indoor1_base1"
+    battlebg   = "Graphics/Battlebacks/interior_bg"
+    playerbase = "Graphics/Battlebacks/interior_base0"
+    enemybase  = "Graphics/Battlebacks/interior_base1"
     @sprites["battle_bg"] = AnimatedPlane.new(@viewport)
     @sprites["battle_bg"].setBitmap(battlebg)
     @sprites["battle_bg"].z = 0
