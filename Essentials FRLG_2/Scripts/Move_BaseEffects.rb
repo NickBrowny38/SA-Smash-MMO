@@ -290,6 +290,7 @@ class Battle::Move::FixedDamageMove < Battle::Move
   def pbCalcDamage(user, target, numTargets = 1)
     target.damageState.critical   = false
     target.damageState.calcDamage = pbFixedDamage(user, target)
+    target.damageState.typeMod = 1
     target.damageState.calcDamage = 1 if target.damageState.calcDamage < 1
   end
 end
