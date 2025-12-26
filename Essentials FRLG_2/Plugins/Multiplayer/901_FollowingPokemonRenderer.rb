@@ -7,15 +7,18 @@ class Sprite_MultiplayerFollower < Sprite
       super(viewport)
       @player_event = player_event
       @follower_data = follower_data
-      @disposed  =  false
+      @disposed = false
       @charset = nil
-      @current_direction  =  2
+      @current_direction = 2
       @pattern = 0
       @anime_count = 0
-      @last_real_x  =  @player_event.real_x
-      @last_real_y  =  @player_event.real_y
-      @send_out_animation = nil
+      @last_real_x = @player_event.real_x
+      @last_real_y = @player_event.real_y
+      @last_screen_x = @player_event.screen_x
+      @last_screen_y = @player_event.screen_y
       @send_out_timer = 0
+      @last_pattern = -1
+      @last_dir_row = -1
       self.x = @player_event.screen_x
       self.y = @player_event.screen_y
       self.visible = false
@@ -77,8 +80,6 @@ class Sprite_MultiplayerFollower < Sprite
     def update_charset_bitmap
       return unless @charset && self.bitmap
 
-      self.bitmap.clear
-
       direction_row = case @current_direction
       when 2 then 0
       when 4 then 1
@@ -87,39 +88,40 @@ class Sprite_MultiplayerFollower < Sprite
       else 0
       end
 
+      return if @last_pattern == @pattern && @last_dir_row == direction_row
+      @last_pattern = @pattern
+      @last_dir_row = direction_row
+
+      self.bitmap.clear
       src_x = @pattern * @char_width
       src_y = direction_row * @char_height
       src_rect = Rect.new(src_x, src_y, @char_width, @char_height)
-
       self.bitmap.blt(0, 0, @charset.bitmap, src_rect)
     end
 
     def update
-      super
+      return if @disposed
+      return unless @player_event
 
-      if @disposed
+      screen_x = @player_event.screen_x
+      screen_y = @player_event.screen_y
+      is_moving = (screen_x != @last_screen_x || screen_y != @last_screen_y)
 
-        self.visible = false
+      if !is_moving && @send_out_timer == 0
         return
       end
 
-      return unless @player_event
+      super
 
       if @send_out_timer > 0
         @send_out_timer -= 1
-
         self.opacity = (255 * (20 - @send_out_timer) / 20.0).to_i
-        if @send_out_timer == 0
-          self.opacity = 255
-          puts "[Following] Send-out animation complete"
-        end
+        self.opacity = 255 if @send_out_timer == 0
       end
 
-      is_moving = (@player_event.real_x != @last_real_x || @player_event.real_y != @last_real_y)
-
       if is_moving
-        @last_real_x = @player_event.real_x
-        @last_real_y = @player_event.real_y
+        @last_screen_x = screen_x
+        @last_screen_y = screen_y
       end
 
       if @current_direction != @player_event.direction
@@ -134,39 +136,30 @@ class Sprite_MultiplayerFollower < Sprite
           @anime_count = 0
           update_charset_bitmap
         end
-      else
-
-        if @pattern != 0
-          @pattern = 0
-          update_charset_bitmap if @charset
-        end
+      elsif @pattern != 0
+        @pattern = 0
+        update_charset_bitmap if @charset
       end
 
       behind_dir = 10 - @player_event.direction
-
       tile_offset_x = 0
       tile_offset_y = 0
 
       case behind_dir
-      when 2
-        tile_offset_y = 1
-      when 4
-        tile_offset_x  =  -1
-      when 6
-        tile_offset_x = 1
-      when 8
-        tile_offset_y = -1
+      when 2 then tile_offset_y = 1
+      when 4 then tile_offset_x = -1
+      when 6 then tile_offset_x = 1
+      when 8 then tile_offset_y = -1
       end
 
-      target_x = @player_event.screen_x + (tile_offset_x * 32)
-      target_y = @player_event.screen_y + (tile_offset_y * 32)
+      target_x = screen_x + (tile_offset_x * 32)
+      target_y = screen_y + (tile_offset_y * 32)
 
       dx = target_x - self.x
       dy = target_y - self.y
-      distance = Math.sqrt(dx * dx + dy * dy)
+      dist_sq = dx * dx + dy * dy
 
-      if distance > 0.5
-
+      if dist_sq > 0.25
         speed = is_moving ? 0.4 : 0.2
         self.x += dx * speed
         self.y += dy * speed
@@ -205,89 +198,64 @@ class Sprite_MultiplayerFollower < Sprite
       @viewport = viewport
       @follower_sprites = {}
       @last_follower_species = {}
+      @player_event_ids = {}
     end
 
     def update(player_events)
-
       return unless pbMultiplayerConnected?
-      follower_data = pbMultiplayerClient.other_player_followers
+      return unless player_events
 
-      @follower_sprites.keys.each do |player_event|
-        unless player_events && player_events.values.include?(player_event)
-          dispose_follower(player_event)
-        end
-      end
-
-      if player_events
-        @last_follower_species.keys.each do |player_id|
-          unless player_events.has_key?(player_id)
-            @last_follower_species.delete(player_id)
-          end
-        end
-      end
-
-      follower_data ||= {}
+      follower_data = pbMultiplayerClient.other_player_followers || {}
+      active_events = {}
 
       player_events.each do |player_id, player_event|
         next unless player_event
+        active_events[player_event] = player_id
         follower_info = follower_data[player_id]
 
+        existing_sprite = @follower_sprites[player_event]
+
         if follower_info
-
           current_species = follower_info[:species]
-          existing_sprite = @follower_sprites[player_event]
+          species_changed = @last_follower_species[player_id] != current_species
 
-          species_changed  =  @last_follower_species[player_id] != current_species
-
-          if existing_sprite && species_changed
-
-            dispose_follower(player_event)
-            new_sprite = Sprite_MultiplayerFollower.new(
-              @viewport,
-              player_event,
-              follower_info
-            )
-            new_sprite.start_send_out_animation
-            @follower_sprites[player_event] = new_sprite
-            @last_follower_species[player_id] = current_species
-          elsif existing_sprite
-
-            existing_sprite.update
-          else
-
-            new_sprite = Sprite_MultiplayerFollower.new(
-              @viewport,
-              player_event,
-              follower_info
-            )
-            new_sprite.start_send_out_animation
-            @follower_sprites[player_event] = new_sprite
-            @last_follower_species[player_id] = current_species
-          end
-        else
-
-          existing_sprite = @follower_sprites[player_event]
           if existing_sprite
-            dispose_follower(player_event)
-            @last_follower_species.delete(player_id)
+            if species_changed
+              dispose_follower(player_event)
+              create_follower_sprite(player_event, player_id, follower_info)
+            else
+              existing_sprite.update
+            end
+          else
+            create_follower_sprite(player_event, player_id, follower_info)
           end
+        elsif existing_sprite
+          dispose_follower(player_event)
+          @last_follower_species.delete(player_id)
         end
       end
+
+      @follower_sprites.keys.each do |player_event|
+        dispose_follower(player_event) unless active_events[player_event]
+      end
+    end
+
+    def create_follower_sprite(player_event, player_id, follower_info)
+      new_sprite = Sprite_MultiplayerFollower.new(@viewport, player_event, follower_info)
+      new_sprite.start_send_out_animation
+      @follower_sprites[player_event] = new_sprite
+      @last_follower_species[player_id] = follower_info[:species]
     end
 
     def dispose_follower(player_event)
-      sprite = @follower_sprites[player_event]
-      if sprite
-        puts "[Following] Disposing follower sprite (disposed? #{sprite.disposed?})"
-        sprite.dispose unless sprite.disposed?
-        @follower_sprites.delete(player_event)
-        puts "[Following] Follower sprite removed from manager"
-      end
+      sprite = @follower_sprites.delete(player_event)
+      sprite.dispose if sprite && !sprite.disposed?
     end
 
     def dispose
-      @follower_sprites.values.each(&:dispose)
+      @follower_sprites.each_value { |s| s.dispose unless s.disposed? }
       @follower_sprites.clear
+      @last_follower_species.clear
     end
   end
 
