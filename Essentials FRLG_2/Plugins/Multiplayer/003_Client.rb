@@ -129,6 +129,16 @@ class MultiplayerClient
       @heartbeat_thread.kill if @heartbeat_thread
       @heartbeat_thread = nil
       @remote_players.clear
+      @last_sent_x = nil
+      @last_sent_y = nil
+      @last_sent_map = nil
+      @last_sent_dir = nil
+      @last_sent_charset = nil
+      @last_position_state = nil
+      @last_sent_follower_species = nil
+      if defined?(@other_player_followers) && @other_player_followers
+        @other_player_followers.clear
+      end
       puts 'Disconnected from multiplayer server' if was_connected
     end
   end

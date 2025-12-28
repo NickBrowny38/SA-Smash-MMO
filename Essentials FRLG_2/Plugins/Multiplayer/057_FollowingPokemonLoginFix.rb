@@ -53,26 +53,35 @@ def mmo_reset_follower_position_on_login
     player_y = $game_player.y
     player_dir = $game_player.direction
 
-    puts "[Following Login Fix V2] Found follower at (#{follower.x}, #{follower.y}), player at (#{player_x}, #{player_y})"
+    # Calculate position behind the player
+    behind_x = player_x
+    behind_y = player_y
+    case player_dir
+    when 2 then behind_y -= 1  # Player facing down, follower above
+    when 4 then behind_x += 1  # Player facing left, follower to right
+    when 6 then behind_x -= 1  # Player facing right, follower to left
+    when 8 then behind_y += 1  # Player facing up, follower below
+    end
+
+    puts "[Following Login Fix V2] Found follower at (#{follower.x}, #{follower.y}), moving to (#{behind_x}, #{behind_y})"
 
     # === COMPREHENSIVE FOLLOWER RESET ===
 
-    # 1. CRITICAL FIRST: Reset the leader tracking variables
-    # This MUST be done FIRST - the follower uses these to decide if it needs to "catch up"
+    # 1. CRITICAL FIRST: Reset the leader tracking variables to current player position
+    # This tells the follower "the leader is here" so it doesn't try to catch up
     follower.instance_variable_set(:@last_leader_x, player_x)
     follower.instance_variable_set(:@last_leader_y, player_y)
-    puts "[Following Login Fix V2] Reset @last_leader_x/y to (#{player_x}, #{player_y})"
 
     # 2. Clear movement states BEFORE moving
     follower.instance_variable_set(:@move_route_forcing, false)
     follower.instance_variable_set(:@wait_count, 0)
 
-    # 3. Reset tile position to player's exact position
-    follower.moveto(player_x, player_y)
+    # 3. Reset tile position to BEHIND the player
+    follower.moveto(behind_x, behind_y)
 
     # 4. Reset real coordinates (pixel-based) - must match tile position exactly
-    follower.instance_variable_set(:@real_x, player_x * Game_Map::REAL_RES_X)
-    follower.instance_variable_set(:@real_y, player_y * Game_Map::REAL_RES_Y)
+    follower.instance_variable_set(:@real_x, behind_x * Game_Map::REAL_RES_X)
+    follower.instance_variable_set(:@real_y, behind_y * Game_Map::REAL_RES_Y)
 
     # 5. Clear movement states again after move
     follower.straighten if follower.respond_to?(:straighten)
@@ -92,8 +101,8 @@ def mmo_reset_follower_position_on_login
 
     # 10. Also update the FollowerData if we have it
     if follower_data
-      follower_data.x = player_x if follower_data.respond_to?(:x=)
-      follower_data.y = player_y if follower_data.respond_to?(:y=)
+      follower_data.x = behind_x if follower_data.respond_to?(:x=)
+      follower_data.y = behind_y if follower_data.respond_to?(:y=)
       follower_data.direction = player_dir if follower_data.respond_to?(:direction=)
       follower_data.current_map_id = $game_map.map_id if follower_data.respond_to?(:current_map_id=) && $game_map
       puts "[Following Login Fix V2] Updated FollowerData"
@@ -103,8 +112,8 @@ def mmo_reset_follower_position_on_login
     if $PokemonGlobal && $PokemonGlobal.respond_to?(:followers) && $PokemonGlobal.followers.is_a?(Array)
       $PokemonGlobal.followers.each do |f|
         next unless f && f.respond_to?(:following_pkmn?) && f.following_pkmn?
-        f.x = player_x if f.respond_to?(:x=)
-        f.y = player_y if f.respond_to?(:y=)
+        f.x = behind_x if f.respond_to?(:x=)
+        f.y = behind_y if f.respond_to?(:y=)
         f.direction = player_dir if f.respond_to?(:direction=)
         f.current_map_id = $game_map.map_id if f.respond_to?(:current_map_id=) && $game_map
         puts "[Following Login Fix V2] Updated $PokemonGlobal.followers entry"
@@ -117,17 +126,16 @@ def mmo_reset_follower_position_on_login
   end
 end
 
-# Global flag to track if we need to reset
-$mmo_follower_reset_pending = false
-$mmo_follower_reset_frames = nil
+# Global flag to track if follower needs position sync
+$mmo_follower_needs_sync = true
+$mmo_follower_sync_cooldown = 0
 
-# Hook into successful login - called when player data is received from server
+# Hook into successful login
 EventHandlers.add(:on_player_change_outfit, :mmo_follower_login_reset,
   proc {
     if pbIsMultiplayerMode?
-      puts "[Following Login Fix V2] on_player_change_outfit triggered - scheduling reset"
-      $mmo_follower_reset_pending = true
-      $mmo_follower_reset_frames = 60  # Give more time for map to fully load
+      $mmo_follower_needs_sync = true
+      $mmo_follower_sync_cooldown = 0
     end
   }
 )
@@ -137,44 +145,78 @@ EventHandlers.add(:on_enter_map, :mmo_follower_map_login_reset,
   proc { |old_map_id|
     next unless pbIsMultiplayerMode?
     next unless defined?(FollowingPkmn)
-
-    # If this is initial login (old_map_id is -1 or nil), schedule reset
-    if old_map_id.nil? || old_map_id <= 0
-      puts "[Following Login Fix V2] Initial map entry detected (old_map_id: #{old_map_id}) - scheduling follower reset"
-      $mmo_follower_reset_pending = true
-      $mmo_follower_reset_frames = 60
-    end
+    $mmo_follower_needs_sync = true
+    $mmo_follower_sync_cooldown = 0
   }
 )
 
-# Also hook map change to reset follower on ANY map transition in multiplayer
-EventHandlers.add(:on_leave_map, :mmo_follower_map_leave,
-  proc { |new_map_id, new_map|
-    next unless pbIsMultiplayerMode?
-    next unless defined?(FollowingPkmn)
+module MMOFollowerSyncPatch
+  def follow_leader(leader, instant = false, leaderIsTrueLeader = true)
+    if pbIsMultiplayerMode?
+      if $mmo_follower_sync_cooldown && $mmo_follower_sync_cooldown > 0
+        $mmo_follower_sync_cooldown -= 1
+        @last_leader_x = leader.x
+        @last_leader_y = leader.y
+        return
+      end
 
-    # Schedule a reset after map transition
-    puts "[Following Login Fix V2] Map transition detected - will reset follower after transfer"
-    $mmo_follower_reset_pending = true
-    $mmo_follower_reset_frames = 30
-  }
-)
+      if $mmo_follower_needs_sync
+        $mmo_follower_needs_sync = false
+        $mmo_follower_sync_cooldown = 15
 
-# Frame update to execute delayed reset
-EventHandlers.add(:on_frame_update, :mmo_follower_login_reset_update,
-  proc {
-    next unless pbIsMultiplayerMode?
-    next unless $mmo_follower_reset_frames && $mmo_follower_reset_frames > 0
+        player_x = leader.x
+        player_y = leader.y
+        player_dir = leader.direction
 
-    $mmo_follower_reset_frames -= 1
-    if $mmo_follower_reset_frames <= 0
-      $mmo_follower_reset_frames = nil
-      if $mmo_follower_reset_pending
-        $mmo_follower_reset_pending = false
-        mmo_reset_follower_position_on_login
+        behind_x = player_x
+        behind_y = player_y
+        behind_dir = 10 - player_dir
+        case behind_dir
+        when 2 then behind_y -= 1
+        when 4 then behind_x -= 1
+        when 6 then behind_x += 1
+        when 8 then behind_y += 1
+        end
+
+        @last_leader_x = player_x
+        @last_leader_y = player_y
+        @move_route_forcing = false
+        @through = false
+        @move_speed = leader.move_speed
+        moveto(behind_x, behind_y)
+        @real_x = behind_x * Game_Map::REAL_RES_X
+        @real_y = behind_y * Game_Map::REAL_RES_Y
+        @pattern = 0
+        @anime_count = 0
+        @step_anime = false
+        @moved_last_frame = false
+        @moved_this_frame = false
+        straighten if respond_to?(:straighten)
+        end_movement if respond_to?(:end_movement)
+        calculate_bush_depth if respond_to?(:calculate_bush_depth)
+        return
       end
     end
+
+    super(leader, instant, leaderIsTrueLeader)
+  end
+end
+
+$mmo_follower_patch_applied = false
+
+EventHandlers.add(:on_game_start, :mmo_apply_follower_patch,
+  proc {
+    next if $mmo_follower_patch_applied
+    next unless defined?(Game_FollowingPkmn)
+    Game_FollowingPkmn.prepend(MMOFollowerSyncPatch)
+    $mmo_follower_patch_applied = true
+    puts "[Following Login Fix] Patch applied to Game_FollowingPkmn"
   }
 )
 
-puts "[Following Login Fix V2] Follower position reset on login loaded - fixes desync after relogging"
+if defined?(Game_FollowingPkmn)
+  Game_FollowingPkmn.prepend(MMOFollowerSyncPatch)
+  $mmo_follower_patch_applied = true
+end
+
+puts "[Following Login Fix V2] Follower position reset on login loaded"

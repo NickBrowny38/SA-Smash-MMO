@@ -70,9 +70,24 @@ MenuHandlers.add(:pause_menu, :quit_game, {
           $scene.instance_variable_set(:@mmo_ui_initialized, false)
         end
 
-        # Force graphics update multiple times
+        # Clean up follower state
+        if defined?(FollowingPkmn)
+          if $game_temp && $game_temp.respond_to?(:followers) && $game_temp.followers
+            $game_temp.followers.instance_variable_set(:@events, [])
+          end
+          if $PokemonGlobal && $PokemonGlobal.respond_to?(:followers)
+            $PokemonGlobal.followers.clear if $PokemonGlobal.followers
+          end
+          $mmo_follower_needs_sync = true if defined?($mmo_follower_needs_sync)
+          $mmo_follower_sync_cooldown = 0 if defined?($mmo_follower_sync_cooldown)
+        end
+
+        if defined?($multiplayer_follower_manager) && $multiplayer_follower_manager
+          $multiplayer_follower_manager.dispose rescue nil
+          $multiplayer_follower_manager = nil
+        end
+
         3.times { Graphics.update }
-        # === END CLEANUP ===
 
         if pbMultiplayerConnected?
           puts 'Disconnecting from server...'
