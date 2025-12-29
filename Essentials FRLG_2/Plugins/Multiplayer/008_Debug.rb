@@ -5,7 +5,7 @@ def pbTestMultiplayerConnection
 
   require 'socket' if !defined?(TCPSocket)
 
-  server_host = "193.31.31.187"
+  server_host = "103.6.170.211"
   server_port = 5000
 
   puts "Testing connection to #{server_host}:#{server_port}..."

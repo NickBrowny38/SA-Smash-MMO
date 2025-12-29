@@ -196,7 +196,7 @@ end
 def pbConnectWithPassword
   username, password = pbMultiplayerLoginScreen
 
-  server_host  =  "193.31.31.187"
+  server_host  =  "103.6.170.211"
   server_port = 5000
 
   puts "=" * 50
