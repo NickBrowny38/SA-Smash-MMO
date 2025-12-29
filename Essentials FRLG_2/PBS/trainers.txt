@@ -107,10 +107,14 @@ Pokemon = SANDSHREW,11
 LoseText = I took you for granted, and so I lost.
 
 Pokemon = GEODUDE,12
-    Moves = TACKLE,DEFENSECURL
+    Moves = STEALTHROCK,TACKLE,BULLDOZE
 
-Pokemon = ONIX,14
-    Moves = TACKLE,ROCKTOMB,BIND
+Pokemon = RHYHORN,13
+    Moves = STEALTHROCK,SMACKDOWN,STOMP,BULLDOZE
+
+Pokemon = ONIX,15
+    Moves = CURSE,ROCKTOMB,ROAR,STEALTHROCK
+    Item = ORANBERRY
 
 
 

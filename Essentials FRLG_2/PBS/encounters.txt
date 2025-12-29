@@ -86,14 +86,16 @@ LandNight,21
 
 [024] # Viridian Forest
 LandDay,21
-    40,CATERPIE,3,4,5
-    35,WEEDLE,3,4,5
+    30,CATERPIE,3,4,5
+    25,WEEDLE,3,4,5
+    20,BELLSPROUT,3,4,5
     10,KAKUNA,4,5,6
     10,METAPOD,4,5,6
     5,PIKACHU,3,4,5
 LandNight,21
-    40,CATERPIE,3,4,5
-    35,WEEDLE,3,4,5
+    30,CATERPIE,3,4,5
+    25,WEEDLE,3,4,5
+    20,ODDISH,3,4,5
     10,KAKUNA,4,5,6
     10,METAPOD,4,5,6
     5,PIKACHU,3,4,5
