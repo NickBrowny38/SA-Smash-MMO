@@ -225,7 +225,7 @@ end
 
 def pbMultiplayerConnectDialog
 
-  server_host = '193.31.31.187'
+  server_host = '103.6.170.211'
   server_port = 5000
 
   username = pbEnterText(_INTL('Username:'), 0, 20, $player.name)
