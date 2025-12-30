@@ -8,6 +8,7 @@ end
 
 class MultiplayerClient
   attr_reader :connected, :username, :remote_players, :my_client_id, :social_player_list
+  attr_reader :connection_error, :connection_state
   attr_accessor :client_id
 
   def initialize
@@ -26,14 +27,19 @@ class MultiplayerClient
     @position_update_interval = 0.05
     @disconnected_during_battle = false
     @server_data_loaded = false
+    @connection_error = nil
+    @connection_state = :disconnected
   end
 
   def connect(host, port, username, password = nil)
     return false if @connected
 
-    begin
+    @connection_error = nil
+    @connection_state = :connecting
 
-      connection_thread = Thread.new do        begin
+    begin
+      connection_thread = Thread.new do
+        begin
           TCPSocket.new(host, port)
         rescue => e
           e
@@ -54,6 +60,8 @@ class MultiplayerClient
 
       if connection_thread.alive?
         connection_thread.kill
+        @connection_error = "Connection timed out.\nThe server may be offline or unreachable.\nPlease try again later."
+        @connection_state = :timeout
         puts "Connection timed out - server may be offline"
         @connected = false
         return false
@@ -69,6 +77,7 @@ class MultiplayerClient
       @server_port = port
       @username = username
       @connected = true
+      @connection_state = :connected
 
       @receive_thread = Thread.new { receive_loop }
 
@@ -79,11 +88,29 @@ class MultiplayerClient
       puts "Connected to multiplayer server at #{host}:#{port}"
       return true
     rescue Errno::ECONNREFUSED
+      @connection_error = "Connection refused.\nThe server is not running or is blocking connections.\nPlease try again later."
+      @connection_state = :refused
       puts "Connection refused - server is not running"
       @connected = false
       @socket = nil
       return false
+    rescue Errno::ENETUNREACH, Errno::EHOSTUNREACH
+      @connection_error = "Network unreachable.\nCheck your internet connection and try again."
+      @connection_state = :network_error
+      puts "Network unreachable"
+      @connected = false
+      @socket = nil
+      return false
+    rescue SocketError => e
+      @connection_error = "DNS resolution failed.\nCould not find the server address.\nCheck your internet connection."
+      @connection_state = :dns_error
+      puts "DNS error: #{e.message}"
+      @connected = false
+      @socket = nil
+      return false
     rescue => e
+      @connection_error = "Connection failed.\n#{e.message}"
+      @connection_state = :error
       puts "Failed to connect to server: #{e.message}"
       @connected = false
       @socket.close if @socket rescue nil

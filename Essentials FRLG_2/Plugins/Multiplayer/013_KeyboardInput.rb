@@ -235,6 +235,27 @@ class KeyboardInput
   end
 end
 
+def pbWrapText(text, max_width, bitmap)
+  words = text.split(' ')
+  lines = []
+  current_line = ""
+
+  words.each do |word|
+    test_line = current_line.empty? ? word : "#{current_line} #{word}"
+    text_width = bitmap.text_size(test_line).width
+
+    if text_width > max_width && !current_line.empty?
+      lines << current_line
+      current_line = word
+    else
+      current_line = test_line
+    end
+  end
+
+  lines << current_line unless current_line.empty?
+  lines
+end
+
 def pbSimpleAlert(title, message)
   viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
   viewport.z = 99999
@@ -243,26 +264,63 @@ def pbSimpleAlert(title, message)
   bg_sprite.bitmap = Bitmap.new(Graphics.width, Graphics.height)
   bg_sprite.bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(0, 0, 0, 200))
 
-  box_width  =  450
-  box_height = 250
+  temp_bitmap = Bitmap.new(1, 1)
+  pbSetSystemFont(temp_bitmap)
+  temp_bitmap.font.size = 22
+
+  max_text_width = Graphics.width - 100
+  raw_lines = message.split(/\\n|\n/)
+  wrapped_lines = []
+
+  raw_lines.each do |line|
+    if temp_bitmap.text_size(line).width > max_text_width
+      wrapped_lines.concat(pbWrapText(line, max_text_width, temp_bitmap))
+    else
+      wrapped_lines << line
+    end
+  end
+
+  temp_bitmap.font.size = 28
+  title_width = temp_bitmap.text_size(title).width + 60
+  temp_bitmap.font.size = 22
+
+  max_line_width = 0
+  wrapped_lines.each do |line|
+    line_width = temp_bitmap.text_size(line).width
+    max_line_width = line_width if line_width > max_line_width
+  end
+
+  temp_bitmap.dispose
+
+  line_height = 28
+  header_height = 53
+  button_area_height = 70
+  padding = 40
+
+  content_width = [max_line_width + padding, title_width].max
+  box_width = [[content_width + 40, 300].max, Graphics.width - 40].min
+
+  content_height = wrapped_lines.length * line_height
+  box_height = header_height + content_height + button_area_height + 20
+  box_height = [[box_height, 150].max, Graphics.height - 40].min
+
   box_x = (Graphics.width - box_width) / 2
   box_y = (Graphics.height - box_height) / 2
 
   box_sprite = Sprite.new(viewport)
   box_sprite.bitmap = Bitmap.new(box_width, box_height)
   box_sprite.x = box_x
-  box_sprite.y  =  box_y
+  box_sprite.y = box_y
   box_sprite.z = 100000
 
   box_sprite.bitmap.fill_rect(0, 0, box_width, box_height, Color.new(255, 255, 255, 255))
-
   box_sprite.bitmap.fill_rect(4, 4, box_width - 8, box_height - 8, Color.new(30, 30, 60, 255))
-
   box_sprite.bitmap.fill_rect(8, 8, box_width - 16, 45, Color.new(180, 50, 50, 255))
+
   pbSetSystemFont(box_sprite.bitmap)
   box_sprite.bitmap.font.size = 28
   box_sprite.bitmap.font.bold = true
-  box_sprite.bitmap.font.color  =  Color.new(255, 255, 255, 255)
+  box_sprite.bitmap.font.color = Color.new(255, 255, 255, 255)
   box_sprite.bitmap.draw_text(15, 12, box_width - 30, 40, title, 1)
 
   pbSetSystemFont(box_sprite.bitmap)
@@ -270,31 +328,30 @@ def pbSimpleAlert(title, message)
   box_sprite.bitmap.font.bold = false
   box_sprite.bitmap.font.color = Color.new(255, 255, 255, 255)
 
-  message_lines = message.split('\n')
-  y_offset = 70
-  message_lines.each do |line|
-    box_sprite.bitmap.draw_text(20, y_offset, box_width - 40, 30, line, 1)
-    y_offset += 32
+  y_offset = header_height + 10
+  wrapped_lines.each do |line|
+    box_sprite.bitmap.draw_text(20, y_offset, box_width - 40, line_height, line, 1)
+    y_offset += line_height
   end
 
-  button_width  =  150
+  button_width = 150
   button_height = 45
-  button_x  =  (box_width - button_width) / 2
-  button_y  =  box_height - 60
+  button_x = (box_width - button_width) / 2
+  button_y = box_height - 60
 
   box_sprite.bitmap.fill_rect(button_x, button_y, button_width, button_height, Color.new(100, 180, 255, 255))
   box_sprite.bitmap.fill_rect(button_x + 2, button_y + 2, button_width - 4, button_height - 4, Color.new(60, 140, 220, 255))
 
   box_sprite.bitmap.font.size = 24
-  box_sprite.bitmap.font.bold  =  true
+  box_sprite.bitmap.font.bold = true
   box_sprite.bitmap.draw_text(button_x, button_y + 8, button_width, 32, 'OK', 1)
 
   keys_pressed = {}
-  loop do    Graphics.update
+  loop do
+    Graphics.update
     Input.update
 
     if $GetKeyState
-
       if ($GetKeyState.call(0x0D) & 0x8000) != 0
         unless keys_pressed[0x0D]
           keys_pressed[0x0D] = true
@@ -338,13 +395,46 @@ def pbSimpleConfirm(prompt)
   bg_sprite.bitmap = Bitmap.new(Graphics.width, Graphics.height)
   bg_sprite.bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(0, 0, 0, 180))
 
-  box_width = 400
-  box_height  =  150
+  temp_bitmap = Bitmap.new(1, 1)
+  pbSetSystemFont(temp_bitmap)
+  temp_bitmap.font.size = 24
+
+  max_text_width = Graphics.width - 100
+  raw_lines = prompt.split(/\\n|\n/)
+  text_lines = []
+
+  raw_lines.each do |line|
+    if temp_bitmap.text_size(line).width > max_text_width
+      text_lines.concat(pbWrapText(line, max_text_width, temp_bitmap))
+    else
+      text_lines << line
+    end
+  end
+
+  max_line_width = 0
+  text_lines.each do |line|
+    line_width = temp_bitmap.text_size(line).width
+    max_line_width = line_width if line_width > max_line_width
+  end
+
+  temp_bitmap.dispose
+
+  line_height = 30
+  button_area_height = 55
+  padding = 40
+
+  content_width = max_line_width + padding
+  box_width = [[content_width + 40, 350].max, Graphics.width - 40].min
+
+  content_height = text_lines.length * line_height
+  box_height = content_height + button_area_height + 40
+  box_height = [[box_height, 130].max, Graphics.height - 40].min
+
   box_x = (Graphics.width - box_width) / 2
   box_y = (Graphics.height - box_height) / 2
 
   box_sprite = Sprite.new(viewport)
-  box_sprite.bitmap  =  Bitmap.new(box_width, box_height)
+  box_sprite.bitmap = Bitmap.new(box_width, box_height)
   box_sprite.x = box_x
   box_sprite.y = box_y
   box_sprite.z = 100000
@@ -355,47 +445,50 @@ def pbSimpleConfirm(prompt)
   pbSetSystemFont(box_sprite.bitmap)
   box_sprite.bitmap.font.size = 24
   box_sprite.bitmap.font.color = Color.new(255, 255, 255, 255)
-  text_lines = prompt.split('\n')
-  text_lines.each_with_index do |line, i|
-    box_sprite.bitmap.draw_text(10, 20 + (i * 30), box_width - 20, 32, line, 1)
+
+  y_offset = 20
+  text_lines.each do |line|
+    box_sprite.bitmap.draw_text(10, y_offset, box_width - 20, 32, line, 1)
+    y_offset += line_height
   end
 
+  button_y_offset = content_height + 30
+
   selection = 0
-  cursor_sprite  =  Sprite.new(viewport)
+  cursor_sprite = Sprite.new(viewport)
   cursor_sprite.bitmap = Bitmap.new(180, 40)
   cursor_sprite.z = 100001
 
   text_sprite = Sprite.new(viewport)
-  text_sprite.bitmap  =  Bitmap.new(box_width, 40)
+  text_sprite.bitmap = Bitmap.new(box_width, 40)
   text_sprite.x = box_x
-  text_sprite.y = box_y + 85
+  text_sprite.y = box_y + button_y_offset
   text_sprite.z = 100002
   pbSetSystemFont(text_sprite.bitmap)
   text_sprite.bitmap.font.size = 24
 
-  def draw_cursor_and_text(cursor_sprite, text_sprite, selection, box_x, box_y, box_width)
-
+  draw_confirm_buttons = proc do |sel|
     cursor_sprite.bitmap.clear
     cursor_sprite.bitmap.fill_rect(0, 0, 180, 40, Color.new(255, 220, 100, 255))
     cursor_sprite.bitmap.fill_rect(3, 3, 174, 34, Color.new(100, 100, 120, 255))
 
-    if selection == 0
+    if sel == 0
       cursor_sprite.x = box_x + 10
     else
       cursor_sprite.x = box_x + box_width / 2 + 10
     end
-    cursor_sprite.y  =  box_y + 85
+    cursor_sprite.y = box_y + button_y_offset
 
     text_sprite.bitmap.clear
 
-    if selection == 0
-      text_sprite.bitmap.font.color  =  Color.new(255, 255, 100, 255)
+    if sel == 0
+      text_sprite.bitmap.font.color = Color.new(255, 255, 100, 255)
     else
-      text_sprite.bitmap.font.color  =  Color.new(200, 200, 200, 255)
+      text_sprite.bitmap.font.color = Color.new(200, 200, 200, 255)
     end
     text_sprite.bitmap.draw_text(10, 5, box_width / 2 - 20, 32, "YES (Y)", 1)
 
-    if selection == 1
+    if sel == 1
       text_sprite.bitmap.font.color = Color.new(255, 255, 100, 255)
     else
       text_sprite.bitmap.font.color = Color.new(200, 200, 200, 255)
@@ -403,7 +496,7 @@ def pbSimpleConfirm(prompt)
     text_sprite.bitmap.draw_text(box_width / 2 + 10, 5, box_width / 2 - 20, 32, 'NO (N)', 1)
   end
 
-  draw_cursor_and_text(cursor_sprite, text_sprite, selection, box_x, box_y, box_width)
+  draw_confirm_buttons.call(selection)
 
   keys_pressed  =  {}
 
@@ -454,8 +547,8 @@ def pbSimpleConfirm(prompt)
 
     if $GetKeyState && ($GetKeyState.call(0x25) & 0x8000) != 0
       unless keys_pressed[0x25]
-        selection  =  0
-        draw_cursor_and_text(cursor_sprite, text_sprite, selection, box_x, box_y, box_width)
+        selection = 0
+        draw_confirm_buttons.call(selection)
         keys_pressed[0x25] = true
       end
     else
@@ -465,7 +558,7 @@ def pbSimpleConfirm(prompt)
     if $GetKeyState && ($GetKeyState.call(0x27) & 0x8000) != 0
       unless keys_pressed[0x27]
         selection = 1
-        draw_cursor_and_text(cursor_sprite, text_sprite, selection, box_x, box_y, box_width)
+        draw_confirm_buttons.call(selection)
         keys_pressed[0x27] = true
       end
     else
