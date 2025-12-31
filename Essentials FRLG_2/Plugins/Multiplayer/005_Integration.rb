@@ -224,9 +224,8 @@ def pbMultiplayerMenu
 end
 
 def pbMultiplayerConnectDialog
-
-  server_host = '103.6.170.211'
-  server_port = 5000
+  server_host = MultiplayerConfig::SERVER_HOST
+  server_port = MultiplayerConfig::SERVER_PORT
 
   username = pbEnterText(_INTL('Username:'), 0, 20, $player.name)
   return if !username || username.empty?
@@ -236,7 +235,11 @@ def pbMultiplayerConnectDialog
   if pbConnectToMultiplayer(server_host, server_port, username)
     pbMessage(_INTL('Connected successfully!'))
   else
-    pbMessage(_INTL('Failed to connect to server.'))
+    error_msg = "Failed to connect to server."
+    if pbMultiplayerClient && pbMultiplayerClient.connection_error
+      error_msg = pbMultiplayerClient.connection_error
+    end
+    pbMessage(_INTL(error_msg))
   end
 end
 

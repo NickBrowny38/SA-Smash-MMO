@@ -5,8 +5,8 @@ def pbTestMultiplayerConnection
 
   require 'socket' if !defined?(TCPSocket)
 
-  server_host = "103.6.170.211"
-  server_port = 5000
+  server_host = MultiplayerConfig::SERVER_HOST
+  server_port = MultiplayerConfig::SERVER_PORT
 
   puts "Testing connection to #{server_host}:#{server_port}..."
 

@@ -200,41 +200,29 @@ class MMOPartyUI
 
     update_icon_animations
 
-    if defined?(MouseInput)
-      mouse_x = MouseInput.mouse_x / 2.0
-      mouse_y = MouseInput.mouse_y / 2.0
-      hovered_slot = get_slot_at_position(mouse_x, mouse_y)
+    mouse_x = Input.mouse_x rescue 0
+    mouse_y = Input.mouse_y rescue 0
+    hovered_slot = get_slot_at_position(mouse_x, mouse_y)
 
-      6.times do |i|
-        if @sprites["slot_#{i}_bg"]
-          if hovered_slot == i && $player.party[i]
-
-            @sprites["slot_#{i}_bg"].bitmap.fill_rect(0, 0, MMOResolution::UI_RIGHT_WIDTH, SLOT_HEIGHT, Color.new(80, 100, 140, 180))
-          else
-
-            @sprites["slot_#{i}_bg"].bitmap.fill_rect(0, 0, MMOResolution::UI_RIGHT_WIDTH, SLOT_HEIGHT, Color.new(40, 50, 70, 160))
-          end
+    6.times do |i|
+      if @sprites["slot_#{i}_bg"]
+        if hovered_slot == i && $player.party[i]
+          @sprites["slot_#{i}_bg"].bitmap.fill_rect(0, 0, MMOResolution::UI_RIGHT_WIDTH, SLOT_HEIGHT, Color.new(80, 100, 140, 180))
+        else
+          @sprites["slot_#{i}_bg"].bitmap.fill_rect(0, 0, MMOResolution::UI_RIGHT_WIDTH, SLOT_HEIGHT, Color.new(40, 50, 70, 160))
         end
       end
     end
 
-    if @dragging_slot && defined?(MouseInput)
-
-      unless MouseInput.left_down?
-
-        mouse_x = MouseInput.mouse_x / 2.0
-        mouse_y = MouseInput.mouse_y / 2.0
-
+    if @dragging_slot
+      left_down = (Input.press?(Input::MOUSELEFT) rescue false) || (defined?(MouseInput) && MouseInput.press?(0) rescue false)
+      unless left_down
         target_slot = get_slot_at_position(mouse_x, mouse_y)
-
         if target_slot && target_slot != @dragging_slot
-
           swap_party_positions(@dragging_slot, target_slot)
         end
-
         @dragging_slot = nil
       else
-
         update_drag_visual
       end
     end
@@ -318,9 +306,8 @@ class MMOPartyUI
   end
 
   def handle_mouse_click(x, y, button)
-
-    game_x = x / 2.0
-    game_y = y / 2.0
+    game_x = Input.mouse_x rescue x
+    game_y = Input.mouse_y rescue y
 
     6.times do |i|
       slot_sprite = @sprites["slot_#{i}_bg"]
@@ -330,23 +317,22 @@ class MMOPartyUI
       slot_x1 = slot_sprite.x
       slot_y1 = slot_sprite.y
       slot_x2 = slot_sprite.x + slot_sprite.bitmap.width
-      slot_y2  =  slot_sprite.y + slot_sprite.bitmap.height
+      slot_y2 = slot_sprite.y + slot_sprite.bitmap.height
 
       if game_x >= slot_x1 && game_x < slot_x2 && game_y >= slot_y1 && game_y < slot_y2
-        if button == 1
+        if button == :left
           @selected_slot = i
           @dragging_slot = i
           @drag_start_x = game_x
-          @drag_start_y  =  game_y
+          @drag_start_y = game_y
           puts "[MMO Party UI] Started dragging slot #{i}"
           return true
-        elsif button == 2
+        elsif button == :right
           show_pokemon_menu(i)
           return true
         end
       end
     end
-
     false
   end
 
@@ -435,9 +421,12 @@ class MMOKeyItemsBar
     @dragging_slot  =  nil
     @drag_start_x = nil
     @drag_start_y = nil
+    @using_item = false
+    @initial_load = true  # Prevent syncing during initial load
 
     create_item_slots
     load_registered_items
+    @initial_load = false
   end
 
   def create_item_slots
@@ -462,23 +451,35 @@ class MMOKeyItemsBar
   end
 
   def load_registered_items
-
-    if $player && $player.respond_to?(:registered_key_items)
+    if $player && $player.respond_to?(:registered_key_items) && $player.registered_key_items
       @registered_items = $player.registered_key_items.clone
+      puts "[MMO Key Items] Loaded from $player: #{@registered_items.inspect}"
     else
-
       if $player
         $player.registered_key_items = [] unless $player.respond_to?(:registered_key_items)
       end
       @registered_items = []
+      puts "[MMO Key Items] No saved items, starting empty"
     end
 
-    if @registered_items.empty? && $bag
+    # Only auto-register in singleplayer mode, not in multiplayer
+    # In multiplayer, server data will be loaded separately
+    is_multiplayer = defined?($multiplayer_client) && $multiplayer_client && $multiplayer_client.connected?
+    if @registered_items.empty? && $bag && !is_multiplayer
       auto_register_common_items
     end
 
     refresh_items
     puts "[MMO Key Items] Loaded #{@registered_items.length} registered items"
+  end
+
+  # Called when server data arrives to reload registered items
+  def reload_from_player
+    if $player && $player.respond_to?(:registered_key_items) && $player.registered_key_items
+      @registered_items = $player.registered_key_items.clone
+      refresh_items
+      puts "[MMO Key Items] Reloaded from server: #{@registered_items.inspect}"
+    end
   end
 
   def auto_register_common_items
@@ -507,10 +508,12 @@ class MMOKeyItemsBar
   end
 
   def save_registered_items
-
     if $player
       $player.registered_key_items = @registered_items.clone
     end
+
+    # Don't sync to server during initial load - prevents overwriting server data
+    return if @initial_load
 
     if defined?($multiplayer_client) && $multiplayer_client && $multiplayer_client.connected?
       sync_registered_items_to_server
@@ -518,10 +521,12 @@ class MMOKeyItemsBar
   end
 
   def sync_registered_items_to_server
+    return unless $multiplayer_client && $multiplayer_client.connected?
 
     $multiplayer_client.send_message(MultiplayerProtocol.create_message("registered_items_update", {
-      items: @registered_items
+      registered_items: @registered_items
     }))
+    puts "[MMO Key Items] Synced registered items to server: #{@registered_items.inspect}"
   end
 
   def register_item(item_id)
@@ -573,57 +578,80 @@ class MMOKeyItemsBar
   end
 
   def handle_mouse_click(x, y, button)
-
-    game_x = x / 2.0
-    game_y = y / 2.0
+    game_x = Input.mouse_x rescue x
+    game_y = Input.mouse_y rescue y
 
     MAX_REGISTERED_ITEMS.times do |i|
-      slot_sprite  =  @sprites["item_slot_#{i}"]
+      slot_sprite = @sprites["item_slot_#{i}"]
       next unless slot_sprite
 
       if game_x >= slot_sprite.x && game_x < slot_sprite.x + ITEM_SLOT_SIZE &&
          game_y >= slot_sprite.y && game_y < slot_sprite.y + ITEM_SLOT_SIZE
 
-        if button == 0
+        if button == :left
           if @registered_items[i]
-
             @dragging_slot = i
             @drag_start_x = game_x
             @drag_start_y = game_y
             return true
+          else
+            open_registration_ui(i)
+            return true
           end
-        elsif button == 1
+        elsif button == :right
           if @registered_items[i]
             unregister_item(@registered_items[i])
+            return true
+          else
+            open_registration_ui(i)
             return true
           end
         end
       end
     end
-
     false
+  end
+
+  def open_registration_ui(target_slot = nil)
+    @pending_registration_slot = target_slot
+    pbOpenItemRegistrationUI if defined?(pbOpenItemRegistrationUI)
+    refresh_items
+    @pending_registration_slot = nil
+  end
+
+  def register_item_to_slot(item_id, slot_index)
+    return false if slot_index >= MAX_REGISTERED_ITEMS
+    return false if @registered_items.include?(item_id)
+
+    while @registered_items.length <= slot_index
+      @registered_items << nil
+    end
+
+    @registered_items[slot_index] = item_id
+    @registered_items.compact!
+    save_registered_items
+    refresh_items
+    pbMultiplayerNotify("Registered #{GameData::Item.get(item_id).name}", 2.0) if defined?(pbMultiplayerNotify)
+    true
   end
 
   def handle_mouse_release(x, y, button)
     return false unless @dragging_slot
 
-    game_x  =  x / 2.0
-    game_y = y / 2.0
+    game_x = Input.mouse_x rescue x
+    game_y = Input.mouse_y rescue y
 
     drag_distance = Math.sqrt((@drag_start_x - game_x)**2 + (@drag_start_y - game_y)**2)
 
     if drag_distance < 5
-
       use_item(@registered_items[@dragging_slot])
     else
-
       MAX_REGISTERED_ITEMS.times do |i|
         slot_sprite = @sprites["item_slot_#{i}"]
         next unless slot_sprite
 
         if game_x >= slot_sprite.x && game_x < slot_sprite.x + ITEM_SLOT_SIZE &&
            game_y >= slot_sprite.y && game_y < slot_sprite.y + ITEM_SLOT_SIZE
-
           swap_items(@dragging_slot, i)
           break
         end
@@ -633,7 +661,6 @@ class MMOKeyItemsBar
     @dragging_slot = nil
     @drag_start_x = nil
     @drag_start_y = nil
-
     true
   end
 
@@ -650,6 +677,31 @@ class MMOKeyItemsBar
   def use_item(item_id)
     puts "[MMO Items] use_item called for #{item_id}"
 
+    # Prevent re-entry while item menu is open
+    return if @using_item
+    @using_item = true
+
+    begin
+      use_item_internal(item_id)
+    ensure
+      @using_item = false
+    end
+  end
+
+  def use_item_internal(item_id)
+    return unless item_id
+
+    if defined?(HMUnlockSystem) && HMUnlockSystem.item_is_hm?(item_id)
+      hm_move = HMUnlockSystem.get_hm_for_item(item_id)
+      if HMUnlockSystem.can_use_hm?(hm_move)
+        HMUnlockSystem.use_hm_from_bar(hm_move)
+      else
+        required = HMUnlockSystem.get_required_badges(hm_move)
+        pbMessage("You need #{required} badge(s) to use #{hm_move}.")
+      end
+      return
+    end
+
     unless $bag && $bag.has?(item_id)
       puts "[MMO Items] Item not in bag"
       pbMultiplayerNotify("You don't have this item!", 2.0) if defined?(pbMultiplayerNotify)
@@ -659,66 +711,100 @@ class MMOKeyItemsBar
     itm = GameData::Item.get(item_id)
     puts "[MMO Items] Showing menu for #{itm.name}"
 
-    cmdRead = -1
-    cmdUse = -1
-    cmdRegister = -1
-    cmdGive = -1
-    cmdToss = -1
-    cmdMMOUnregister = -1
-    cmdDebug = -1
     commands = []
+    cmd_indices = {}
 
-    commands[cmdRead = commands.length] = _INTL("Read") if itm.is_mail?
-    if ItemHandlers.hasOutHandler(item_id) || (itm.is_machine? && $player.party.length > 0)
-      if ItemHandlers.hasUseText(item_id)
-        commands[cmdUse = commands.length] = ItemHandlers.getUseText(item_id)
-      else
-        commands[cmdUse = commands.length] = _INTL("Use")
-      end
+    if itm.is_mail?
+      cmd_indices[:read] = commands.length
+      commands << _INTL("Read")
     end
-    commands[cmdGive = commands.length] = _INTL("Give") if $player.pokemon_party.length > 0 && itm.can_hold?
-    commands[cmdToss = commands.length] = _INTL("Toss") if !itm.is_important? || $DEBUG
 
-    if $bag.registered?(item_id)
-      commands[cmdRegister = commands.length] = _INTL("Deselect")
-    elsif defined?(pbCanRegisterItem?) && pbCanRegisterItem?(item_id)
-      commands[cmdRegister = commands.length] = _INTL("Register")
+    if ItemHandlers.hasOutHandler(item_id) || (itm.is_machine? && $player.party.length > 0)
+      cmd_indices[:use] = commands.length
+      use_text = ItemHandlers.hasUseText(item_id) ? ItemHandlers.getUseText(item_id) : _INTL("Use")
+      commands << use_text
+    end
+
+    if $player.pokemon_party.length > 0 && itm.can_hold?
+      cmd_indices[:give] = commands.length
+      commands << _INTL("Give")
+    end
+
+    if !itm.is_important? || $DEBUG
+      cmd_indices[:toss] = commands.length
+      commands << _INTL("Toss")
     end
 
     if @registered_items.include?(item_id)
-      commands[cmdMMOUnregister = commands.length] = _INTL("MMO Unregister")
+      cmd_indices[:unregister] = commands.length
+      commands << _INTL("Unregister from Bar")
     end
 
-    commands[cmdDebug = commands.length] = _INTL("Debug") if $DEBUG
-    commands[commands.length] = _INTL("Cancel")
+    cmd_indices[:cancel] = commands.length
+    commands << _INTL("Cancel")
 
-    msgwindow = pbCreateMessageWindow
-    command = pbMessage(_INTL("{1} is selected.", itm.name), commands.dup, -1, msgwindow)
-    pbDisposeMessageWindow(msgwindow)
+    command = pbMessage(_INTL("{1} is selected.", itm.name), commands, commands.length - 1)
 
     puts "[MMO Items] Selected command: #{command}"
 
-    if cmdRead >= 0 && command == cmdRead
-      pbFadeOutIn do
-        pbDisplayMail(Mail.new(item_id, "", ""))
+    case command
+    when cmd_indices[:read]
+      pbDisplayMail(Mail.new(item_id, "", ""))
+    when cmd_indices[:use]
+      # Check if item needs to be used on a Pokemon (healing items, etc.)
+      if ItemHandlers.hasUseOnPokemon(item_id)
+        # Open party screen to select Pokemon
+        if $player.pokemon_count == 0
+          pbMessage(_INTL("There is no Pokémon."))
+        else
+          sscene = PokemonParty_Scene.new
+          sscreen = PokemonPartyScreen.new(sscene, $player.party)
+          sscreen.pbStartScene(_INTL("Use on which Pokémon?"), false)
+          loop do
+            chosen = sscreen.pbChoosePokemon
+            if chosen < 0
+              sscreen.pbEndScene
+              break
+            end
+            pkmn = $player.party[chosen]
+            if ItemHandlers.triggerCanUseOnPokemon(item_id, pkmn, sscreen)
+              used = ItemHandlers.triggerUseOnPokemon(item_id, 1, pkmn, sscreen)
+              if used
+                $bag.remove(item_id, 1)
+                refresh_items
+                # Check if item is gone or we should continue
+                unless $bag.has?(item_id)
+                  sscreen.pbEndScene
+                  break
+                end
+              end
+            end
+          end
+        end
+      elsif ItemHandlers.hasUseInField(item_id)
+        # Items that can be used in the field (like Repel, Escape Rope)
+        ret = ItemHandlers.triggerUseInField(item_id)
+        if ret
+          $bag.remove(item_id, 1) if ret == 1  # Consumed
+          refresh_items
+        end
+      else
+        # Standard UseFromBag handler (TMs, key items, etc.)
+        ret = ItemHandlers.triggerUseFromBag(item_id)
+        refresh_items if ret
       end
-    elsif cmdUse >= 0 && command == cmdUse
-      ret = ItemHandlers.triggerUseFromBag(item_id)
-      refresh_items if ret
-    elsif cmdGive >= 0 && command == cmdGive
+    when cmd_indices[:give]
       if $player.pokemon_count == 0
         pbMessage(_INTL("There is no Pokémon."))
       elsif itm.is_important?
         pbMessage(_INTL("The {1} can't be held.", itm.portion_name))
       else
-        pbFadeOutIn do
-          sscene = PokemonParty_Scene.new
-          sscreen = PokemonPartyScreen.new(sscene, $player.party)
-          sscreen.pbPokemonGiveScreen(item_id)
-          refresh_items
-        end
+        sscene = PokemonParty_Scene.new
+        sscreen = PokemonPartyScreen.new(sscene, $player.party)
+        sscreen.pbPokemonGiveScreen(item_id)
+        refresh_items
       end
-    elsif cmdToss >= 0 && command == cmdToss
+    when cmd_indices[:toss]
       qty = $bag.quantity(item_id)
       if qty > 1
         helptext = _INTL("Toss out how many {1}?", itm.portion_name_plural)
@@ -735,31 +821,8 @@ class MMOKeyItemsBar
           refresh_items
         end
       end
-    elsif cmdRegister >= 0 && command == cmdRegister
-      if $bag.registered?(item_id)
-        $bag.unregister(item_id)
-        pbMultiplayerNotify("Deregistered #{itm.name}", 2.0) if defined?(pbMultiplayerNotify)
-      else
-        $bag.register(item_id)
-        pbMultiplayerNotify("Registered #{itm.name}", 2.0) if defined?(pbMultiplayerNotify)
-      end
-    elsif cmdMMOUnregister >= 0 && command == cmdMMOUnregister
+    when cmd_indices[:unregister]
       unregister_item(item_id)
-    elsif cmdDebug >= 0 && command == cmdDebug
-      qty = $bag.quantity(item_id)
-      itemplural = itm.name_plural
-      params = ChooseNumberParams.new
-      params.setRange(0, Settings::BAG_MAX_PER_SLOT)
-      params.setDefaultValue(qty)
-      newqty = pbMessageChooseNumber(
-        _INTL("Choose new quantity of {1} (max. {2}).", itemplural, Settings::BAG_MAX_PER_SLOT), params
-      )
-      if newqty > qty
-        $bag.add(item_id, newqty - qty)
-      elsif newqty < qty
-        $bag.remove(item_id, qty - newqty)
-      end
-      refresh_items
     end
   end
 
@@ -771,29 +834,33 @@ class MMOKeyItemsBar
   def update
     return if @disposed
 
-    if defined?(MouseInput)
-      mouse_x = MouseInput.mouse_x / 2.0
-      mouse_y  =  MouseInput.mouse_y / 2.0
+    mouse_x = Input.mouse_x rescue 0
+    mouse_y = Input.mouse_y rescue 0
 
-      MAX_REGISTERED_ITEMS.times do |i|
-        slot_sprite  =  @sprites["item_slot_#{i}"]
-        next unless slot_sprite
+    MAX_REGISTERED_ITEMS.times do |i|
+      slot_sprite = @sprites["item_slot_#{i}"]
+      next unless slot_sprite
+      next unless slot_sprite.bitmap
 
-        is_hovered = mouse_x >= slot_sprite.x && mouse_x < slot_sprite.x + ITEM_SLOT_SIZE &&
-                     mouse_y >= slot_sprite.y && mouse_y < slot_sprite.y + ITEM_SLOT_SIZE
+      is_hovered = mouse_x >= slot_sprite.x && mouse_x < slot_sprite.x + ITEM_SLOT_SIZE &&
+                   mouse_y >= slot_sprite.y && mouse_y < slot_sprite.y + ITEM_SLOT_SIZE
 
-        if is_hovered && @registered_items[i]
-
+      if is_hovered
+        if @registered_items[i]
           slot_sprite.bitmap.fill_rect(0, 0, ITEM_SLOT_SIZE, ITEM_SLOT_SIZE, Color.new(100, 140, 200, 240))
-
           slot_sprite.bitmap.fill_rect(0, 0, ITEM_SLOT_SIZE, 2, Color.new(150, 190, 255))
           slot_sprite.bitmap.fill_rect(0, ITEM_SLOT_SIZE - 2, ITEM_SLOT_SIZE, 2, Color.new(150, 190, 255))
           slot_sprite.bitmap.fill_rect(0, 0, 2, ITEM_SLOT_SIZE, Color.new(150, 190, 255))
           slot_sprite.bitmap.fill_rect(ITEM_SLOT_SIZE - 2, 0, 2, ITEM_SLOT_SIZE, Color.new(150, 190, 255))
         else
-
-          slot_sprite.bitmap.fill_rect(0, 0, ITEM_SLOT_SIZE, ITEM_SLOT_SIZE, Color.new(60, 60, 60, 200))
+          slot_sprite.bitmap.fill_rect(0, 0, ITEM_SLOT_SIZE, ITEM_SLOT_SIZE, Color.new(80, 80, 100, 220))
+          slot_sprite.bitmap.fill_rect(0, 0, ITEM_SLOT_SIZE, 1, Color.new(120, 120, 150))
+          slot_sprite.bitmap.fill_rect(0, ITEM_SLOT_SIZE - 1, ITEM_SLOT_SIZE, 1, Color.new(120, 120, 150))
+          slot_sprite.bitmap.fill_rect(0, 0, 1, ITEM_SLOT_SIZE, Color.new(120, 120, 150))
+          slot_sprite.bitmap.fill_rect(ITEM_SLOT_SIZE - 1, 0, 1, ITEM_SLOT_SIZE, Color.new(120, 120, 150))
         end
+      else
+        slot_sprite.bitmap.fill_rect(0, 0, ITEM_SLOT_SIZE, ITEM_SLOT_SIZE, Color.new(60, 60, 60, 200))
       end
     end
   end
@@ -811,18 +878,43 @@ class MMOKeyItemsBar
 end
 
 def pbLoadItemIconBitmap(item_id)
-
   if defined?(GameData::Item)
-    item_data = GameData::Item.get(item_id)
-    filename = sprintf("Graphics/Items/%s", item_data.id.to_s)
+    item_data = GameData::Item.get(item_id) rescue nil
+    return nil unless item_data
 
+    # Check if it's a TM or HM (machine item)
+    if item_data.is_machine?
+      move_id = item_data.move
+      if move_id
+        move_data = GameData::Move.get(move_id) rescue nil
+        if move_data
+          type_name = move_data.type.to_s.upcase
+
+          # Check if it's an HM (item ID starts with HM)
+          item_id_str = item_data.id.to_s.upcase
+          if item_id_str.start_with?("HM")
+            filename = "Graphics/Items/machine_hm_#{type_name}"
+          else
+            filename = "Graphics/Items/machine_#{type_name}"
+          end
+
+          if pbResolveBitmap(filename)
+            return Bitmap.new(filename + '.png')
+          end
+        end
+      end
+    end
+
+    # Standard item icon lookup by item ID
+    filename = sprintf("Graphics/Items/%s", item_data.id.to_s)
     if pbResolveBitmap(filename)
       return Bitmap.new(filename + '.png')
-    else
-      fallback = "Graphics/Items/000"
-      if pbResolveBitmap(fallback)
-        return Bitmap.new(fallback + '.png')
-      end
+    end
+
+    # Fallback to default item icon
+    fallback = "Graphics/Items/000"
+    if pbResolveBitmap(fallback)
+      return Bitmap.new(fallback + '.png')
     end
   end
 
