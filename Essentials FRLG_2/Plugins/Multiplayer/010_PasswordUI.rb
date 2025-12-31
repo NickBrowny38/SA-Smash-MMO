@@ -1,5 +1,26 @@
-MULTIPLAYER_CREDENTIALS_FILE = 'multiplayer_credentials.dat'
 CREDENTIALS_VERSION = 3
+
+def pbGetCredentialsPath
+  if defined?(System) && System.respond_to?(:data_directory)
+    base_dir = System.data_directory
+  else
+    base_dir = ENV['APPDATA'] || ENV['HOME'] || '.'
+  end
+
+  credentials_dir = File.join(base_dir, 'PokemonMMO')
+
+  unless File.directory?(credentials_dir)
+    begin
+      Dir.mkdir(credentials_dir)
+    rescue
+      return 'multiplayer_credentials.dat'
+    end
+  end
+
+  File.join(credentials_dir, 'credentials.dat')
+end
+
+MULTIPLAYER_CREDENTIALS_FILE = pbGetCredentialsPath
 
 module CredentialSecurity
   HASH_ITERATIONS = 10000
