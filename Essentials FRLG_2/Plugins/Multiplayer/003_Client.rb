@@ -971,11 +971,11 @@ class MultiplayerClient
         # Convert string symbols back to symbols
         registered_items = registered_items.map { |item| item.is_a?(String) ? item.to_sym : item }
         $player.registered_key_items = registered_items
-        puts "Loaded registered items: #{registered_items.inspect}"
+        puts "Loaded registered items: #{registered_items.length} items"
 
-        # Refresh the key items bar if it exists
-        if $mmo_key_items_bar && $mmo_key_items_bar.respond_to?(:refresh_items)
-          $mmo_key_items_bar.refresh_items
+        # Reload the key items bar from player data
+        if $mmo_key_items_bar && $mmo_key_items_bar.respond_to?(:reload_from_player)
+          $mmo_key_items_bar.reload_from_player
         end
       end
     end

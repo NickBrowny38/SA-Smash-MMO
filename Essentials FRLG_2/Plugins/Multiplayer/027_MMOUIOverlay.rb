@@ -422,9 +422,11 @@ class MMOKeyItemsBar
     @drag_start_x = nil
     @drag_start_y = nil
     @using_item = false
+    @initial_load = true  # Prevent syncing during initial load
 
     create_item_slots
     load_registered_items
+    @initial_load = false
   end
 
   def create_item_slots
@@ -449,23 +451,35 @@ class MMOKeyItemsBar
   end
 
   def load_registered_items
-
-    if $player && $player.respond_to?(:registered_key_items)
+    if $player && $player.respond_to?(:registered_key_items) && $player.registered_key_items
       @registered_items = $player.registered_key_items.clone
+      puts "[MMO Key Items] Loaded from $player: #{@registered_items.inspect}"
     else
-
       if $player
         $player.registered_key_items = [] unless $player.respond_to?(:registered_key_items)
       end
       @registered_items = []
+      puts "[MMO Key Items] No saved items, starting empty"
     end
 
-    if @registered_items.empty? && $bag
+    # Only auto-register in singleplayer mode, not in multiplayer
+    # In multiplayer, server data will be loaded separately
+    is_multiplayer = defined?($multiplayer_client) && $multiplayer_client && $multiplayer_client.connected?
+    if @registered_items.empty? && $bag && !is_multiplayer
       auto_register_common_items
     end
 
     refresh_items
     puts "[MMO Key Items] Loaded #{@registered_items.length} registered items"
+  end
+
+  # Called when server data arrives to reload registered items
+  def reload_from_player
+    if $player && $player.respond_to?(:registered_key_items) && $player.registered_key_items
+      @registered_items = $player.registered_key_items.clone
+      refresh_items
+      puts "[MMO Key Items] Reloaded from server: #{@registered_items.inspect}"
+    end
   end
 
   def auto_register_common_items
@@ -494,10 +508,12 @@ class MMOKeyItemsBar
   end
 
   def save_registered_items
-
     if $player
       $player.registered_key_items = @registered_items.clone
     end
+
+    # Don't sync to server during initial load - prevents overwriting server data
+    return if @initial_load
 
     if defined?($multiplayer_client) && $multiplayer_client && $multiplayer_client.connected?
       sync_registered_items_to_server
@@ -735,8 +751,48 @@ class MMOKeyItemsBar
     when cmd_indices[:read]
       pbDisplayMail(Mail.new(item_id, "", ""))
     when cmd_indices[:use]
-      ret = ItemHandlers.triggerUseFromBag(item_id)
-      refresh_items if ret
+      # Check if item needs to be used on a Pokemon (healing items, etc.)
+      if ItemHandlers.hasUseOnPokemon(item_id)
+        # Open party screen to select Pokemon
+        if $player.pokemon_count == 0
+          pbMessage(_INTL("There is no Pokémon."))
+        else
+          sscene = PokemonParty_Scene.new
+          sscreen = PokemonPartyScreen.new(sscene, $player.party)
+          sscreen.pbStartScene(_INTL("Use on which Pokémon?"), false)
+          loop do
+            chosen = sscreen.pbChoosePokemon
+            if chosen < 0
+              sscreen.pbEndScene
+              break
+            end
+            pkmn = $player.party[chosen]
+            if ItemHandlers.triggerCanUseOnPokemon(item_id, pkmn, sscreen)
+              used = ItemHandlers.triggerUseOnPokemon(item_id, 1, pkmn, sscreen)
+              if used
+                $bag.remove(item_id, 1)
+                refresh_items
+                # Check if item is gone or we should continue
+                unless $bag.has?(item_id)
+                  sscreen.pbEndScene
+                  break
+                end
+              end
+            end
+          end
+        end
+      elsif ItemHandlers.hasUseInField(item_id)
+        # Items that can be used in the field (like Repel, Escape Rope)
+        ret = ItemHandlers.triggerUseInField(item_id)
+        if ret
+          $bag.remove(item_id, 1) if ret == 1  # Consumed
+          refresh_items
+        end
+      else
+        # Standard UseFromBag handler (TMs, key items, etc.)
+        ret = ItemHandlers.triggerUseFromBag(item_id)
+        refresh_items if ret
+      end
     when cmd_indices[:give]
       if $player.pokemon_count == 0
         pbMessage(_INTL("There is no Pokémon."))
