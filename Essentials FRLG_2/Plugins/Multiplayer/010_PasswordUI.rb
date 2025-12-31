@@ -1,7 +1,10 @@
 MULTIPLAYER_CREDENTIALS_FILE = 'multiplayer_credentials.dat'
-CREDENTIALS_VERSION = 2
+CREDENTIALS_VERSION = 3
 
 module CredentialSecurity
+  HASH_ITERATIONS = 10000
+  SALT_LENGTH = 32
+
   def self.derive_key
     machine_id = ENV['COMPUTERNAME'] || ENV['HOSTNAME'] || 'default'
     user_id = ENV['USERNAME'] || ENV['USER'] || 'player'
@@ -13,9 +16,23 @@ module CredentialSecurity
     key_bytes
   end
 
-  def self.generate_salt(length = 16)
-    chars = ('a'..'z').to_a + ('A'..'Z').to_a + ('0'..'9').to_a
+  def self.generate_salt(length = SALT_LENGTH)
+    chars = ('a'..'z').to_a + ('A'..'Z').to_a + ('0'..'9').to_a + ['!', '@', '#', '$', '%']
     Array.new(length) { chars.sample }.join
+  end
+
+  def self.hash_password_for_transmission(password, username)
+    return nil if password.nil? || username.nil?
+    require 'digest'
+
+    normalized_user = username.downcase.strip
+    salt = "mmo_auth_#{normalized_user}_2024"
+
+    hash = password
+    HASH_ITERATIONS.times do |i|
+      hash = Digest::SHA256.hexdigest("#{salt}#{hash}#{i}")
+    end
+    hash
   end
 
   def self.encrypt(plain_text, salt)
@@ -29,7 +46,7 @@ module CredentialSecurity
     [encrypted.pack('C*')].pack('m0')
   end
 
-  def self.decrypt(encrypted_text, salt_length = 16)
+  def self.decrypt(encrypted_text, salt_length = SALT_LENGTH)
     return nil if encrypted_text.nil? || encrypted_text.empty?
     key = derive_key
     decoded = encrypted_text.unpack('m0').first
@@ -45,6 +62,28 @@ module CredentialSecurity
   def self.hash_for_display(password)
     return "" if password.nil?
     "*" * [password.length, 8].min
+  end
+end
+
+module LoginState
+  DISCONNECTED = :disconnected
+  CONNECTING = :connecting
+  AUTHENTICATING = :authenticating
+  LOADING_DATA = :loading_data
+  CONNECTED = :connected
+  FAILED = :failed
+
+  MESSAGES = {
+    disconnected: "Not connected",
+    connecting: "Connecting to server...",
+    authenticating: "Verifying credentials...",
+    loading_data: "Loading your save data...",
+    connected: "Connected!",
+    failed: "Connection failed"
+  }.freeze
+
+  def self.message_for(state)
+    MESSAGES[state] || "Unknown state"
   end
 end
 
@@ -164,15 +203,9 @@ def pbChangeMultiplayerAccount
 end
 
 def pbGetMultiplayerPassword(username)
-
-  password = pbKeyboardInput("Enter password for #{username}:", 50)
-
-  if password.nil? || password.empty?
-
-    return username
-  end
-
-  return password
+  password = pbKeyboardInput("Enter password for #{username}:", 50, "", nil, true)
+  return nil if password.nil? || password.empty?
+  password
 end
 
 def pbMultiplayerLoginScreen(force_new_account = false)
@@ -184,13 +217,11 @@ def pbMultiplayerLoginScreen(force_new_account = false)
     if saved_username && saved_password && !saved_username.empty?
       puts "Found saved credentials for: #{saved_username}"
 
-      puts 'ABOUT TO SHOW LOGIN PROMPT...'
-      if pbSimpleConfirm("Login as #{saved_username}?")
+      if pbShowLoginConfirmDialog(saved_username)
         puts "Using saved credentials: #{saved_username}"
         return [saved_username, saved_password]
       else
         puts "User chose to use different credentials"
-
       end
     else
       puts "No saved credentials found"
@@ -200,91 +231,227 @@ def pbMultiplayerLoginScreen(force_new_account = false)
   puts "Prompting for new credentials"
 
   username = nil
-  loop do    username = pbKeyboardInput("Enter username (3-20 chars):", 20)
+  loop do
+    username = pbKeyboardInput("Enter username (3-20 chars):", 20)
 
     if username.nil?
-      pbMessage(_INTL("Login cancelled."))
       return [nil, nil]
     end
 
     username = username.gsub(/\s+/, '')
 
     if username.empty?
-      pbMessage(_INTL('Username cannot be empty. Please try again.'))
+      pbSimpleAlert("Invalid Username", "Username cannot be empty.\nPlease try again.")
       next
     end
 
     if pbValidateUsername(username)
       break
     end
-
   end
 
   $player.name = username if $player
 
   password = nil
-  loop do    password = pbKeyboardInput("Enter password (8+ chars, 1+ number):", 50, "", nil, true)
+  loop do
+    password = pbKeyboardInput("Enter password (8+ chars, 1+ number):", 50, "", nil, true)
 
     if password.nil?
-      pbMessage(_INTL("Login cancelled."))
       return [nil, nil]
     end
 
     if password.empty?
-      if pbConfirmMessage(_INTL("Use quick login (no password)?"))
-        password = username
-        break
-      else
-        next
-      end
+      pbSimpleAlert("Password Required", "A password is required for account security.\nPlease enter a password.")
+      next
     end
 
     if pbValidatePassword(password)
-
       break
     end
-
   end
 
   pbSaveMultiplayerCredentials(username, password)
 
   puts "=== LOGIN SCREEN END ==="
-  return [username, password]
+  [username, password]
 end
 
-def pbShowConnectionStatus(message)
-  return unless defined?(pbSimpleAlert)
+def pbShowLoginConfirmDialog(username)
   viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
   viewport.z = 99999
 
-  sprite = Sprite.new(viewport)
-  sprite.bitmap = Bitmap.new(Graphics.width, 80)
-  sprite.y = (Graphics.height - 80) / 2
+  bg_sprite = Sprite.new(viewport)
+  bg_sprite.bitmap = Bitmap.new(Graphics.width, Graphics.height)
+  bg_sprite.bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(0, 0, 0, 200))
 
-  sprite.bitmap.fill_rect(0, 0, Graphics.width, 80, Color.new(0, 0, 0, 220))
-  sprite.bitmap.fill_rect(4, 4, Graphics.width - 8, 72, Color.new(40, 40, 60, 255))
+  box_width = 380
+  box_height = 180
+  box_x = (Graphics.width - box_width) / 2
+  box_y = (Graphics.height - box_height) / 2
 
-  pbSetSystemFont(sprite.bitmap)
-  sprite.bitmap.font.size = 24
-  sprite.bitmap.font.color = Color.new(255, 255, 255, 255)
-  sprite.bitmap.draw_text(0, 25, Graphics.width, 30, message, 1)
+  box_sprite = Sprite.new(viewport)
+  box_sprite.bitmap = Bitmap.new(box_width, box_height)
+  box_sprite.x = box_x
+  box_sprite.y = box_y
+  box_sprite.z = 100000
 
-  Graphics.update
+  box_sprite.bitmap.fill_rect(0, 0, box_width, box_height, Color.new(255, 255, 255))
+  box_sprite.bitmap.fill_rect(4, 4, box_width - 8, box_height - 8, Color.new(40, 50, 70))
+  box_sprite.bitmap.fill_rect(8, 8, box_width - 16, 45, Color.new(70, 130, 180))
 
-  return [sprite, viewport]
+  pbSetSystemFont(box_sprite.bitmap)
+  box_sprite.bitmap.font.size = 26
+  box_sprite.bitmap.font.bold = true
+  box_sprite.bitmap.font.color = Color.new(255, 255, 255)
+  box_sprite.bitmap.draw_text(15, 14, box_width - 30, 32, "Welcome Back!", 1)
+
+  box_sprite.bitmap.font.size = 22
+  box_sprite.bitmap.font.bold = false
+  box_sprite.bitmap.draw_text(20, 60, box_width - 40, 28, "Continue as:", 1)
+
+  box_sprite.bitmap.font.size = 28
+  box_sprite.bitmap.font.bold = true
+  box_sprite.bitmap.font.color = Color.new(100, 200, 255)
+  box_sprite.bitmap.draw_text(20, 88, box_width - 40, 32, username, 1)
+
+  selection = 0
+  button_y = box_height - 50
+
+  draw_buttons = proc do |sel|
+    box_sprite.bitmap.fill_rect(30, button_y, 150, 38, sel == 0 ? Color.new(100, 180, 100) : Color.new(80, 80, 100))
+    box_sprite.bitmap.fill_rect(200, button_y, 150, 38, sel == 1 ? Color.new(180, 100, 100) : Color.new(80, 80, 100))
+
+    box_sprite.bitmap.font.size = 20
+    box_sprite.bitmap.font.bold = true
+    box_sprite.bitmap.font.color = Color.new(255, 255, 255)
+    box_sprite.bitmap.draw_text(30, button_y + 8, 150, 24, "Continue", 1)
+    box_sprite.bitmap.draw_text(200, button_y + 8, 150, 24, "Switch Account", 1)
+  end
+
+  draw_buttons.call(selection)
+
+  5.times { Graphics.update; Input.update }
+
+  result = nil
+  loop do
+    Graphics.update
+    Input.update
+
+    if Input.trigger?(Input::LEFT)
+      selection = 0
+      draw_buttons.call(selection)
+    elsif Input.trigger?(Input::RIGHT)
+      selection = 1
+      draw_buttons.call(selection)
+    end
+
+    if Input.trigger?(Input::USE) || Input.trigger?(Input::ACTION)
+      result = (selection == 0)
+      break
+    end
+
+    if Input.trigger?(Input::BACK)
+      result = false
+      break
+    end
+  end
+
+  box_sprite.bitmap.dispose
+  box_sprite.dispose
+  bg_sprite.bitmap.dispose
+  bg_sprite.dispose
+  viewport.dispose
+
+  result
 end
 
-def pbHideConnectionStatus(sprites)
-  return unless sprites
-  sprite, viewport = sprites
-  sprite.bitmap.dispose if sprite && sprite.bitmap
-  sprite.dispose if sprite
-  viewport.dispose if viewport
+class ConnectionStatusOverlay
+  def initialize
+    @viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
+    @viewport.z = 99999
+
+    @bg_sprite = Sprite.new(@viewport)
+    @bg_sprite.bitmap = Bitmap.new(Graphics.width, Graphics.height)
+    @bg_sprite.bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(0, 0, 0, 180))
+
+    @box_width = 350
+    @box_height = 120
+    @box_x = (Graphics.width - @box_width) / 2
+    @box_y = (Graphics.height - @box_height) / 2
+
+    @box_sprite = Sprite.new(@viewport)
+    @box_sprite.bitmap = Bitmap.new(@box_width, @box_height)
+    @box_sprite.x = @box_x
+    @box_sprite.y = @box_y
+    @box_sprite.z = 100000
+
+    @spinner_frame = 0
+    @spinner_chars = ['|', '/', '-', '\\']
+  end
+
+  def update(message, sub_message = nil)
+    @spinner_frame = (@spinner_frame + 1) % 20
+    spinner = @spinner_chars[@spinner_frame / 5]
+
+    @box_sprite.bitmap.clear
+    @box_sprite.bitmap.fill_rect(0, 0, @box_width, @box_height, Color.new(255, 255, 255))
+    @box_sprite.bitmap.fill_rect(4, 4, @box_width - 8, @box_height - 8, Color.new(40, 50, 70))
+
+    pbSetSystemFont(@box_sprite.bitmap)
+    @box_sprite.bitmap.font.size = 24
+    @box_sprite.bitmap.font.bold = true
+    @box_sprite.bitmap.font.color = Color.new(255, 255, 255)
+    @box_sprite.bitmap.draw_text(20, 25, @box_width - 40, 30, "#{spinner} #{message}", 1)
+
+    if sub_message
+      @box_sprite.bitmap.font.size = 18
+      @box_sprite.bitmap.font.bold = false
+      @box_sprite.bitmap.font.color = Color.new(180, 180, 180)
+      @box_sprite.bitmap.draw_text(20, 60, @box_width - 40, 24, sub_message, 1)
+    end
+
+    progress_width = @box_width - 40
+    @box_sprite.bitmap.fill_rect(20, @box_height - 30, progress_width, 8, Color.new(60, 60, 80))
+
+    progress = case message
+               when /Connecting/ then 0.25
+               when /Authenticating|Verifying/ then 0.5
+               when /Loading/ then 0.75
+               when /Connected/ then 1.0
+               else 0.1
+               end
+    @box_sprite.bitmap.fill_rect(20, @box_height - 30, (progress_width * progress).to_i, 8, Color.new(100, 180, 100))
+
+    Graphics.update
+  end
+
+  def show_success(message)
+    @box_sprite.bitmap.clear
+    @box_sprite.bitmap.fill_rect(0, 0, @box_width, @box_height, Color.new(255, 255, 255))
+    @box_sprite.bitmap.fill_rect(4, 4, @box_width - 8, @box_height - 8, Color.new(40, 80, 60))
+
+    pbSetSystemFont(@box_sprite.bitmap)
+    @box_sprite.bitmap.font.size = 26
+    @box_sprite.bitmap.font.bold = true
+    @box_sprite.bitmap.font.color = Color.new(100, 255, 100)
+    @box_sprite.bitmap.draw_text(20, 40, @box_width - 40, 36, message, 1)
+
+    @box_sprite.bitmap.fill_rect(20, @box_height - 30, @box_width - 40, 8, Color.new(100, 180, 100))
+
+    8.times { Graphics.update }
+  end
+
+  def dispose
+    @box_sprite.bitmap.dispose if @box_sprite&.bitmap
+    @box_sprite.dispose if @box_sprite
+    @bg_sprite.bitmap.dispose if @bg_sprite&.bitmap
+    @bg_sprite.dispose if @bg_sprite
+    @viewport.dispose if @viewport
+  end
 end
 
 def pbConnectWithPassword
   username, password = pbMultiplayerLoginScreen
-
   return false if username.nil?
 
   server_host = MultiplayerConfig::SERVER_HOST
@@ -295,51 +462,163 @@ def pbConnectWithPassword
   puts "=" * 50
   puts "Server: #{server_host}:#{server_port}"
   puts "Username: #{username}"
-  puts "Connecting..."
+
+  hashed_password = CredentialSecurity.hash_password_for_transmission(password, username)
 
   max_retries = 3
   retry_count = 0
+  base_delay = 1.0
 
   loop do
-    status_sprites = pbShowConnectionStatus("Connecting to server...")
-    3.times { Graphics.update }
+    status = ConnectionStatusOverlay.new
 
-    success = pbConnectToMultiplayer(server_host, server_port, username, password)
+    10.times do
+      status.update("Connecting to server...", "#{server_host}:#{server_port}")
+    end
 
-    pbHideConnectionStatus(status_sprites)
+    success = false
+    error_msg = nil
+
+    begin
+      20.times do
+        status.update("Connecting to server...", "Establishing connection...")
+      end
+
+      success = pbConnectToMultiplayer(server_host, server_port, username, hashed_password)
+
+      if success
+        15.times { status.update("Authenticating...", "Verifying credentials...") }
+        15.times { status.update("Loading save data...", "Please wait...") }
+        status.show_success("Connected!")
+      else
+        error_msg = pbMultiplayerClient&.connection_error || "Could not connect to server.\nThe server may be offline."
+      end
+    rescue => e
+      error_msg = "Connection error: #{e.message}"
+      puts "Connection exception: #{e.message}"
+    end
+
+    status.dispose
 
     if success
       puts "LOGGED IN SUCCESSFULLY!"
-      puts '=' * 50
+      puts "=" * 50
       $multiplayer_auto_connected = true
       return true
-    else
-      retry_count += 1
-      puts "Login failed (attempt #{retry_count})"
-      puts "=" * 50
+    end
 
-      error_msg = nil
-      if pbMultiplayerClient && pbMultiplayerClient.connection_error
-        error_msg = pbMultiplayerClient.connection_error
-      else
-        error_msg = "Could not connect to server.\nThe server may be offline."
-      end
+    retry_count += 1
+    puts "Login failed (attempt #{retry_count}/#{max_retries})"
+    puts "=" * 50
 
-      if retry_count < max_retries
-        if defined?(pbSimpleConfirm)
-          if pbSimpleConfirm("#{error_msg}\n\nRetry connection? (#{retry_count}/#{max_retries})")
-            next
-          else
-            return false
-          end
-        else
-          pbSimpleAlert("Connection Failed", error_msg) if defined?(pbSimpleAlert)
-          return false
-        end
+    if retry_count < max_retries
+      delay = base_delay * (2 ** (retry_count - 1))
+      delay = [delay, 8.0].min
+
+      if pbShowRetryDialog(error_msg, retry_count, max_retries, delay)
+        delay_frames = (delay * 60).to_i
+        delay_frames.times { Graphics.update }
+        next
       else
-        pbSimpleAlert("Connection Failed", "#{error_msg}\n\nMaximum retry attempts reached.\nPlease try again later.") if defined?(pbSimpleAlert)
         return false
       end
+    else
+      pbSimpleAlert("Connection Failed", "#{error_msg}\n\nMaximum attempts reached.\nPlease check your internet connection\nand try again later.")
+      return false
     end
   end
+end
+
+def pbShowRetryDialog(error_msg, attempt, max_attempts, delay)
+  viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
+  viewport.z = 99999
+
+  bg_sprite = Sprite.new(viewport)
+  bg_sprite.bitmap = Bitmap.new(Graphics.width, Graphics.height)
+  bg_sprite.bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(0, 0, 0, 200))
+
+  box_width = 400
+  box_height = 200
+  box_x = (Graphics.width - box_width) / 2
+  box_y = (Graphics.height - box_height) / 2
+
+  box_sprite = Sprite.new(viewport)
+  box_sprite.bitmap = Bitmap.new(box_width, box_height)
+  box_sprite.x = box_x
+  box_sprite.y = box_y
+  box_sprite.z = 100000
+
+  box_sprite.bitmap.fill_rect(0, 0, box_width, box_height, Color.new(255, 255, 255))
+  box_sprite.bitmap.fill_rect(4, 4, box_width - 8, box_height - 8, Color.new(50, 40, 40))
+  box_sprite.bitmap.fill_rect(8, 8, box_width - 16, 45, Color.new(180, 80, 80))
+
+  pbSetSystemFont(box_sprite.bitmap)
+  box_sprite.bitmap.font.size = 24
+  box_sprite.bitmap.font.bold = true
+  box_sprite.bitmap.font.color = Color.new(255, 255, 255)
+  box_sprite.bitmap.draw_text(15, 14, box_width - 30, 32, "Connection Failed", 1)
+
+  box_sprite.bitmap.font.size = 18
+  box_sprite.bitmap.font.bold = false
+
+  lines = error_msg.split(/\\n|\n/)
+  y_offset = 60
+  lines.each do |line|
+    box_sprite.bitmap.draw_text(20, y_offset, box_width - 40, 22, line, 1)
+    y_offset += 22
+  end
+
+  box_sprite.bitmap.font.size = 16
+  box_sprite.bitmap.font.color = Color.new(200, 200, 200)
+  box_sprite.bitmap.draw_text(20, box_height - 80, box_width - 40, 20, "Attempt #{attempt}/#{max_attempts} - Retry in #{delay.to_i}s?", 1)
+
+  selection = 0
+  button_y = box_height - 50
+
+  draw_buttons = proc do |sel|
+    box_sprite.bitmap.fill_rect(50, button_y, 130, 38, sel == 0 ? Color.new(100, 180, 100) : Color.new(80, 80, 100))
+    box_sprite.bitmap.fill_rect(220, button_y, 130, 38, sel == 1 ? Color.new(180, 100, 100) : Color.new(80, 80, 100))
+
+    box_sprite.bitmap.font.size = 18
+    box_sprite.bitmap.font.bold = true
+    box_sprite.bitmap.font.color = Color.new(255, 255, 255)
+    box_sprite.bitmap.draw_text(50, button_y + 10, 130, 22, "Retry", 1)
+    box_sprite.bitmap.draw_text(220, button_y + 10, 130, 22, "Cancel", 1)
+  end
+
+  draw_buttons.call(selection)
+
+  5.times { Graphics.update; Input.update }
+
+  result = nil
+  loop do
+    Graphics.update
+    Input.update
+
+    if Input.trigger?(Input::LEFT)
+      selection = 0
+      draw_buttons.call(selection)
+    elsif Input.trigger?(Input::RIGHT)
+      selection = 1
+      draw_buttons.call(selection)
+    end
+
+    if Input.trigger?(Input::USE) || Input.trigger?(Input::ACTION)
+      result = (selection == 0)
+      break
+    end
+
+    if Input.trigger?(Input::BACK)
+      result = false
+      break
+    end
+  end
+
+  box_sprite.bitmap.dispose
+  box_sprite.dispose
+  bg_sprite.bitmap.dispose
+  bg_sprite.dispose
+  viewport.dispose
+
+  result
 end

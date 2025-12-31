@@ -18,6 +18,95 @@ require_relative 'server_config'
 require_relative 'server_trade_v2'
 
 #===============================================================================
+# LOGIN SECURITY - Rate limiting and IP tracking
+#===============================================================================
+module LoginSecurity
+  LOGIN_RATE_LIMITS = {
+    max_attempts: ServerConfig::MAX_LOGIN_ATTEMPTS,
+    lockout_duration: ServerConfig::BAN_DURATION_MINUTES * 60,
+    attempt_window: 300
+  }
+
+  HASH_ITERATIONS = 10000
+
+  def init_login_security
+    @login_attempts ||= {}
+    @ip_lockouts ||= {}
+  end
+
+  def get_client_ip(client_socket)
+    begin
+      client_socket.peeraddr[3]
+    rescue
+      "unknown"
+    end
+  end
+
+  def check_ip_lockout(ip_address)
+    init_login_security
+    return false if ip_address == "unknown"
+
+    lockout = @ip_lockouts[ip_address]
+    return false unless lockout
+
+    if Time.now.to_i > lockout[:expires_at]
+      @ip_lockouts.delete(ip_address)
+      return false
+    end
+
+    remaining = lockout[:expires_at] - Time.now.to_i
+    { locked: true, remaining: remaining, reason: lockout[:reason] }
+  end
+
+  def record_login_attempt(ip_address, username, success)
+    init_login_security
+    return if ip_address == "unknown"
+
+    key = "#{ip_address}:#{username.downcase}"
+    @login_attempts[key] ||= { attempts: [], last_success: nil }
+
+    if success
+      @login_attempts[key] = { attempts: [], last_success: Time.now.to_i }
+      return
+    end
+
+    current_time = Time.now.to_i
+    @login_attempts[key][:attempts] << current_time
+
+    window = LOGIN_RATE_LIMITS[:attempt_window]
+    @login_attempts[key][:attempts].reject! { |t| current_time - t > window }
+
+    if @login_attempts[key][:attempts].length >= LOGIN_RATE_LIMITS[:max_attempts]
+      lockout_ip(ip_address, "Too many failed login attempts")
+    end
+  end
+
+  def lockout_ip(ip_address, reason)
+    init_login_security
+    @ip_lockouts[ip_address] = {
+      expires_at: Time.now.to_i + LOGIN_RATE_LIMITS[:lockout_duration],
+      reason: reason
+    }
+    @logger.warn "[SECURITY] IP #{ip_address} locked out: #{reason}"
+  end
+
+  def hash_password_server(password, username)
+    normalized_user = username.downcase.strip
+    salt = "mmo_auth_#{normalized_user}_2024"
+
+    hash = password
+    HASH_ITERATIONS.times do |i|
+      hash = Digest::SHA256.hexdigest("#{salt}#{hash}#{i}")
+    end
+    hash
+  end
+
+  def verify_password(stored_hash, provided_hash)
+    stored_hash == provided_hash
+  end
+end
+
+#===============================================================================
 # SERVER-SIDE ANTI-CHEAT (Cannot be modified by clients!)
 #===============================================================================
 module ServerAntiCheat
@@ -25,9 +114,8 @@ module ServerAntiCheat
   MAX_STAT_VALUE = 999
   MAX_MONEY = 999999999
 
-  # Rate limiting (seconds between actions)
   RATE_LIMITS = {
-    move: 0.03,    # 33 updates/sec - relaxed for smoother gameplay (no movement validation)
+    move: 0.03,
     battle: 0.5,
     item: 0.3,
     trade: 5.0,
@@ -37,13 +125,11 @@ module ServerAntiCheat
   def validate_pokemon_data(pokemon_data)
     return {valid: false, error: "Pokemon data is nil"} unless pokemon_data
 
-    # Validate level
     level = pokemon_data[:level].to_i
     if level < 1 || level > MAX_POKEMON_LEVEL
       return {valid: false, error: "Invalid level: #{level} (must be 1-#{MAX_POKEMON_LEVEL})"}
     end
 
-    # Validate stats aren't impossibly high
     [:hp, :attack, :defense, :speed, :sp_atk, :sp_def].each do |stat|
       stat_value = pokemon_data[stat].to_i
       if stat_value > MAX_STAT_VALUE
@@ -67,7 +153,7 @@ module ServerAntiCheat
     min_interval = RATE_LIMITS[action_type] || 0.1
 
     if (current_time - last_time) < min_interval
-      return false  # Rate limited!
+      return false
     end
 
     @rate_limit_tracker[client_id][action_type] = current_time
@@ -75,13 +161,11 @@ module ServerAntiCheat
   end
 
   def ban_cheater(client_id, reason)
-    # Get username BEFORE disconnecting (disconnect removes from @clients)
     username = @clients[client_id] ? @clients[client_id][:username] : "Unknown"
 
     @logger.error "[ANTI-CHEAT] Client #{client_id} (#{username}) BANNED: #{reason}"
     send_error(client_id, "You have been banned for cheating: #{reason}")
 
-    # Add to ban list in database BEFORE disconnecting
     db_ban_player(username, reason) if username && username != "Unknown"
 
     disconnect_client(client_id)
@@ -89,7 +173,8 @@ module ServerAntiCheat
 end
 
 class MultiplayerServer
-  include ServerAntiCheat  # Include anti-cheat validation
+  include ServerAntiCheat
+  include LoginSecurity
 
   # Server version using Semantic Versioning (MAJOR.MINOR.PATCH)
   VERSION = "0.1.7"
@@ -458,16 +543,29 @@ class MultiplayerServer
 
   def handle_connect(client_id, data)
     username = data[:username]
-    password = data[:password] || username  # Default password = username (basic)
-    client_version = data[:version] || "0.0.0"  # Default for old clients without version
-    client_game_id = data[:game_id]  # Game identifier (new field)
+    password = data[:password]
+    client_version = data[:version] || "0.0.0"
+    client_game_id = data[:game_id]
     client_info = @clients[client_id]
 
-    @logger.info "[AUTH] Client ##{client_id} connecting: #{username} (version #{client_version}, game: #{client_game_id || 'unknown'})"
+    ip_address = get_client_ip(client_info[:socket])
+    @logger.info "[AUTH] Client ##{client_id} (#{ip_address}) connecting: #{username} (v#{client_version})"
 
-    # ========== GAME ID CHECKING (STEP 0) ==========
-    # Verify the client is connecting with the correct game
-    # This prevents users with different games from joining incompatible servers
+    lockout = check_ip_lockout(ip_address)
+    if lockout && lockout[:locked]
+      remaining_min = (lockout[:remaining] / 60.0).ceil
+      @logger.warn "[SECURITY] Blocked login from locked IP: #{ip_address}"
+      send_error(client_id, "Too many failed attempts. Try again in #{remaining_min} minutes.")
+      disconnect_client(client_id)
+      return
+    end
+
+    if password.nil? || password.empty?
+      @logger.warn "[AUTH] REJECTED: No password provided for #{username}"
+      send_error(client_id, "Password is required.")
+      disconnect_client(client_id)
+      return
+    end
 
     if client_game_id != EXPECTED_GAME_ID
       @logger.warn "[AUTH] REJECTED: Game mismatch - Client '#{client_game_id}' vs Server '#{EXPECTED_GAME_ID}'"
@@ -483,65 +581,49 @@ class MultiplayerServer
       return
     end
 
-    # ========== VERSION CHECKING (STEP 1) ==========
-    # Check version compatibility BEFORE authentication
-    # This prevents incompatible clients from accessing the database
-
-    # STEP 1A: Check major version compatibility
     unless versions_compatible?(client_version, VERSION)
-      # Major version mismatch - incompatible client
       @logger.warn "[AUTH] REJECTED: Version incompatible - Client #{client_version} vs Server #{VERSION}"
       send_version_error(client_id, :version_mismatch, client_version)
       disconnect_client(client_id)
       return
     end
 
-    # STEP 1B: Check minimum version requirement
     unless meets_minimum_version?(client_version, MIN_CLIENT_VERSION)
-      # Client is too old - reject connection
       @logger.warn "[AUTH] REJECTED: Client outdated - #{client_version} < minimum #{MIN_CLIENT_VERSION}"
       send_version_error(client_id, :outdated_client, client_version)
       disconnect_client(client_id)
       return
     end
 
-    # STEP 1C: Require exact version match
     if client_version != VERSION
-      # Client version doesn't match server - reject to force update
-      @logger.warn "[AUTH] REJECTED: Client version mismatch - #{client_version} != #{VERSION} (exact match required)"
+      @logger.warn "[AUTH] REJECTED: Client version mismatch - #{client_version} != #{VERSION}"
       send_version_error(client_id, :outdated_client, client_version)
       disconnect_client(client_id)
       return
     end
 
-    # ========== END VERSION CHECKING ==========
-
-    # Check if username is already online
     if @clients.values.any? { |c| c[:username] == username && c[:id] != client_id }
-      send_error(client_id, "Username already online")
+      send_error(client_id, "This account is already logged in from another location.")
       disconnect_client(client_id)
       return
     end
 
-    # Check max players
     if @clients.count { |_, c| c[:username] } >= @max_players
-      send_error(client_id, "Server full")
+      send_error(client_id, "Server is full. Please try again later.")
       disconnect_client(client_id)
       return
     end
 
-    # Try to authenticate or register
     auth_result = authenticate_player(username, password)
 
     if auth_result == :wrong_password
-      # User exists but password is wrong
-      @logger.warn "Invalid password for #{username}"
+      record_login_attempt(ip_address, username, false)
+      @logger.warn "[AUTH] Invalid password for #{username} from #{ip_address}"
       send_error(client_id, "Invalid password! Please check your password and try again.")
       disconnect_client(client_id)
       return
     elsif auth_result == :not_found
-      # User doesn't exist, try to register
-      @logger.info "New player detected, registering: #{username}"
+      @logger.info "[AUTH] New player registering: #{username}"
       player_data = register_player(username, password)
 
       if player_data.nil?
@@ -549,9 +631,12 @@ class MultiplayerServer
         disconnect_client(client_id)
         return
       end
+
+      record_login_attempt(ip_address, username, true)
+      @logger.info "[AUTH] New account created: #{username}"
     else
-      # Successful authentication
       player_data = auth_result
+      record_login_attempt(ip_address, username, true)
     end
 
     # Load full player data from database
@@ -2522,53 +2607,73 @@ class MultiplayerServer
     @logger.info "Database initialized successfully"
   end
 
-  def authenticate_player(username, password)
+  def authenticate_player(username, password_hash)
     db = SQLite3::Database.new(@db_path)
     db.results_as_hash = true
 
-    result = db.execute("SELECT * FROM players WHERE username = ?", [username]).first
+    result = db.execute("SELECT * FROM players WHERE LOWER(username) = LOWER(?)", [username]).first
     db.close
 
-    # Return :not_found if user doesn't exist (allows registration)
     return :not_found unless result
 
-    # Check password hash
-    password_hash = Digest::SHA256.hexdigest(password + result['username'])
-    if password_hash == result['password_hash']
-      @logger.info "Player #{username} authenticated successfully"
-      return {
-        id: result['id'],
-        username: result['username'],
-        map_id: result['map_id'],
-        x: result['x'],
-        y: result['y'],
-        direction: result['direction'],
-        has_running_shoes: result['has_running_shoes'] || 0,
-        has_starter: result['has_starter'] || 0
-      }
-    else
-      @logger.warn "Failed authentication for #{username} - wrong password"
-      # Return :wrong_password to indicate user exists but password doesn't match
-      return :wrong_password
+    stored_hash = result['password_hash']
+
+    if is_legacy_hash?(stored_hash, username)
+      legacy_hash = Digest::SHA256.hexdigest(password_hash + result['username'])
+      if legacy_hash == stored_hash
+        upgrade_password_hash(result['id'], password_hash)
+        @logger.info "[AUTH] #{username} authenticated (legacy hash upgraded)"
+        return build_player_result(result)
+      end
     end
+
+    if password_hash == stored_hash
+      @logger.info "[AUTH] #{username} authenticated successfully"
+      return build_player_result(result)
+    end
+
+    @logger.warn "[AUTH] Failed authentication for #{username}"
+    :wrong_password
   end
 
-  def register_player(username, password)
-    return nil if username.nil? || username.empty? || password.nil? || password.empty?
+  def is_legacy_hash?(stored_hash, username)
+    stored_hash.length == 64 && !stored_hash.start_with?('mmo_')
+  end
+
+  def upgrade_password_hash(player_id, new_hash)
+    db = SQLite3::Database.new(@db_path)
+    db.execute("UPDATE players SET password_hash = ? WHERE id = ?", [new_hash, player_id])
+    db.close
+    @logger.info "[AUTH] Upgraded password hash for player #{player_id}"
+  rescue => e
+    @logger.error "[AUTH] Failed to upgrade hash: #{e.message}"
+  end
+
+  def build_player_result(result)
+    {
+      id: result['id'],
+      username: result['username'],
+      map_id: result['map_id'],
+      x: result['x'],
+      y: result['y'],
+      direction: result['direction'],
+      has_running_shoes: result['has_running_shoes'] || 0,
+      has_starter: result['has_starter'] || 0
+    }
+  end
+
+  def register_player(username, password_hash)
+    return nil if username.nil? || username.empty? || password_hash.nil? || password_hash.empty?
 
     db = SQLite3::Database.new(@db_path)
     db.results_as_hash = true
 
-    # Check if username already exists
-    existing = db.execute("SELECT id FROM players WHERE username = ?", [username]).first
+    existing = db.execute("SELECT id FROM players WHERE LOWER(username) = LOWER(?)", [username]).first
     if existing
       db.close
-      @logger.warn "Registration failed: Username #{username} already exists"
+      @logger.warn "[AUTH] Registration failed: Username #{username} already exists"
       return nil
     end
-
-    # Create password hash (using username as salt)
-    password_hash = Digest::SHA256.hexdigest(password + username)
 
     begin
       db.execute(
@@ -2579,12 +2684,11 @@ class MultiplayerServer
       player_id = db.last_insert_row_id
       db.close
 
-      @logger.info "New player registered: #{username} (ID: #{player_id})"
+      @logger.info "[AUTH] New player registered: #{username} (ID: #{player_id})"
 
-      # Get spawn position from config
       spawn = ServerConfig.get_spawn_position
 
-      return {
+      {
         id: player_id,
         username: username,
         map_id: spawn[:map_id],
@@ -2596,8 +2700,8 @@ class MultiplayerServer
       }
     rescue SQLite3::Exception => e
       db.close
-      @logger.error "Registration error: #{e.message}"
-      return nil
+      @logger.error "[AUTH] Registration error: #{e.message}"
+      nil
     end
   end
 
