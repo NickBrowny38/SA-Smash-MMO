@@ -1,6 +1,7 @@
 class Game_RemotePlayer < Game_Character
   attr_reader :player_id
   attr_reader :username
+  attr_accessor :direction
 
   def initialize(map, player_id, username)
     super(map)
@@ -24,17 +25,6 @@ class Game_RemotePlayer < Game_Character
     @always_on_top = false
     @walk_anime = true
     @first_update = true
-    @last_update_time = nil
-    @delta_t = 0
-    @moved_last_frame = false
-    @moved_this_frame = false
-    @needs_update = false
-    @velocity_x = 0.0
-    @velocity_y = 0.0
-    @last_target_x = 0
-    @last_target_y = 0
-    @interpolation_time = 0.0
-    @move_duration = 0.2
   end
 
   def name
@@ -47,118 +37,74 @@ class Game_RemotePlayer < Game_Character
   end
 
   def update_from_server_data(data)
-    target_x = data[:x] || @x
-    target_y = data[:y] || @y
-    target_real_x = data[:real_x] || (target_x * 128)
-    target_real_y = data[:real_y] || (target_y * 128)
+    new_x = data[:x] || @x
+    new_y = data[:y] || @y
+    new_real_x = data[:real_x] || (new_x * 128)
+    new_real_y = data[:real_y] || (new_y * 128)
 
-    if @first_update
-      @x = target_x
-      @y = target_y
-      @real_x = target_real_x
-      @real_y = target_real_y
-      @target_real_x = target_real_x
-      @target_real_y = target_real_y
-      @last_target_x = target_real_x
-      @last_target_y = target_real_y
-      @pattern = @original_pattern
-      @anime_count = 0
+    if @first_update || (new_x - @x).abs > 2 || (new_y - @y).abs > 2
+      @x = new_x
+      @y = new_y
+      @real_x = new_real_x
+      @real_y = new_real_y
+      @target_real_x = new_real_x
+      @target_real_y = new_real_y
       @first_update = false
-    elsif (target_x - @x).abs > 2 || (target_y - @y).abs > 2
-      @x = target_x
-      @y = target_y
-      @real_x = target_real_x
-      @real_y = target_real_y
-      @target_real_x = target_real_x
-      @target_real_y = target_real_y
-      @last_target_x = target_real_x
-      @last_target_y = target_real_y
-      @pattern = @original_pattern
-      @anime_count = 0
-      @interpolation_time = 0.0
     else
-      @x = target_x
-      @y = target_y
-
-      if @target_real_x != target_real_x || @target_real_y != target_real_y
-        @last_target_x = @target_real_x
-        @last_target_y = @target_real_y
-        @target_real_x = target_real_x
-        @target_real_y = target_real_y
-        @interpolation_time = 0.0
-      end
-
-      if (@real_x != @target_real_x || @real_y != @target_real_y) && !@moved_this_frame
-        @anime_count = 0
-      end
+      @x = new_x
+      @y = new_y
+      @target_real_x = new_real_x
+      @target_real_y = new_real_y
     end
 
     @direction = data[:direction] if data[:direction]
     @move_speed = data[:move_speed] || 3
 
     if data[:charset] && !data[:charset].empty?
-      begin
-        test_path = "Graphics/Characters/#{data[:charset]}"
-        if FileTest.exist?(test_path + ".png") || FileTest.exist?(test_path)
-          @character_name = data[:charset]
-        end
-      rescue
-      end
+      @character_name = data[:charset]
     end
-
-    @needs_update = true
   end
 
   def update
-    return unless @needs_update || @real_x != @target_real_x || @real_y != @target_real_y
-    @needs_update = false
+    dist_x = @target_real_x - @real_x
+    dist_y = @target_real_y - @real_y
 
-    time_now = System.uptime
-    @last_update_time = time_now if !@last_update_time || @last_update_time > time_now
-    @delta_t = time_now - @last_update_time
-    @last_update_time = time_now
-    return if @delta_t > 0.25
-
-    @moved_last_frame = @moved_this_frame
-    @moved_this_frame = false
-
-    if @real_x != @target_real_x || @real_y != @target_real_y
-      dist_x = @target_real_x - @real_x
-      dist_y = @target_real_y - @real_y
+    if dist_x != 0 || dist_y != 0
       dist_sq = dist_x * dist_x + dist_y * dist_y
 
       if dist_sq > 65536
+        # Teleport if too far
         @real_x = @target_real_x
         @real_y = @target_real_y
       else
-        @interpolation_time += @delta_t
-        progress = [@interpolation_time / @move_duration, 1.0].min
-        eased = 1.0 - ((1.0 - progress) ** 2)
-
-        if dist_sq > 8192
-          lerp_speed = 0.15 + (eased * 0.2)
-        elsif dist_sq > 2048
-          lerp_speed = 0.12 + (eased * 0.15)
-        else
-          lerp_speed = 0.1 + (eased * 0.1)
-        end
-
-        @real_x += (dist_x * lerp_speed).round
-        @real_y += (dist_y * lerp_speed).round
-
-        @real_x = @target_real_x if (dist_x.abs < 4)
-        @real_y = @target_real_y if (dist_y.abs < 4)
+        # Smooth easing - faster when far, slower when close
+        ease = 0.25
+        move_x = (dist_x * ease).round
+        move_y = (dist_y * ease).round
+        # Ensure minimum movement of 1 pixel when there's distance
+        move_x = (dist_x > 0 ? 1 : -1) if move_x == 0 && dist_x != 0
+        move_y = (dist_y > 0 ? 1 : -1) if move_y == 0 && dist_y != 0
+        @real_x += move_x
+        @real_y += move_y
+        # Snap to target when very close
+        @real_x = @target_real_x if dist_x.abs < 4
+        @real_y = @target_real_y if dist_y.abs < 4
       end
 
-      @moved_this_frame = true
-      @anime_count += @delta_t if @walk_anime || @step_anime
+      # Walk animation
+      @anime_count += 1
+      if @anime_count >= 12 - @move_speed
+        @pattern = (@pattern + 1) % 4
+        @anime_count = 0
+      end
+    else
+      @pattern = 0
+      @anime_count = 0
     end
-
-    update_pattern
   end
 
   def moving?
-    return @real_x != @target_real_x || @real_y != @target_real_y
+    @real_x != @target_real_x || @real_y != @target_real_y
   end
 end
 
@@ -167,18 +113,10 @@ class Sprite_RemotePlayer < Sprite_Character
 
   def initialize(viewport, character)
     super(viewport, character)
-
-    if !@reflection
-      @reflection = Sprite_Reflection.new(self, viewport) if defined?(Sprite_Reflection)
-    end
-
+    @reflection = Sprite_Reflection.new(self, viewport) if !@reflection && defined?(Sprite_Reflection)
     create_username_sprite(viewport)
     @last_username_x = nil
     @last_username_y = nil
-    @last_username_opacity = nil
-    @last_username_visible = nil
-    @last_screen_x = nil
-    @last_screen_y = nil
   end
 
   def create_username_sprite(viewport)
@@ -202,33 +140,16 @@ class Sprite_RemotePlayer < Sprite_Character
   end
 
   def update
-    char_screen_x = @character.screen_x
-    char_screen_y = @character.screen_y
-    return if @last_screen_x == char_screen_x && @last_screen_y == char_screen_y && !@character.instance_variable_get(:@needs_update)
-    @last_screen_x = char_screen_x
-    @last_screen_y = char_screen_y
     super
-    update_username_position
-  end
+    return if !@username_sprite
 
-  def update_username_position
-    return unless @username_sprite
-
-    if @last_username_x != self.x || @last_username_y != self.y
+    if self.x != @last_username_x || self.y != @last_username_y
       @username_sprite.x = self.x
       @username_sprite.y = self.y - 45
+      @username_sprite.opacity = self.opacity
+      @username_sprite.visible = self.visible
       @last_username_x = self.x
       @last_username_y = self.y
-    end
-
-    if @last_username_opacity != self.opacity
-      @username_sprite.opacity = self.opacity
-      @last_username_opacity = self.opacity
-    end
-
-    if @last_username_visible != self.visible
-      @username_sprite.visible = self.visible
-      @last_username_visible = self.visible
     end
   end
 
@@ -253,6 +174,7 @@ class MultiplayerRemotePlayerManager
     @remote_sprites = {}
     @frame_counter = 0
     @cached_map_id = $game_map.map_id
+    @player_ids_cache = []
     $multiplayer_current_map_id ||= @cached_map_id
   end
 
@@ -275,19 +197,21 @@ class MultiplayerRemotePlayerManager
       next unless player_data[:map_id] == current_map_id
       active_ids[player_id] = true
 
-      if @remote_players[player_id]
-        @remote_players[player_id].update_from_server_data(player_data)
+      player = @remote_players[player_id]
+      if player
+        player.update_from_server_data(player_data)
       else
         add_remote_player(player_data)
       end
     end
 
-    @remote_players.keys.each do |player_id|
+    @player_ids_cache = @remote_players.keys
+    @player_ids_cache.each do |player_id|
       remove_remote_player(player_id) unless active_ids[player_id]
     end
 
-    @remote_players.each_value(&:update)
-    @remote_sprites.each_value(&:update)
+    @remote_players.each_value { |p| p.update }
+    @remote_sprites.each_value { |s| s.update }
   end
 
   def clear_all_players

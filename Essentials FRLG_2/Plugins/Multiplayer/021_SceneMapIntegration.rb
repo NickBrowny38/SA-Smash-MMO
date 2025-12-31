@@ -234,11 +234,8 @@ class Scene_Map
       if defined?(FollowingPkmn) && defined?(MultiplayerFollowerManager)
 
         if !$multiplayer_follower_manager && @remote_player_manager
-          if !@follower_viewport
-            @follower_viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
-            @follower_viewport.z  =  99998
-          end
-          $multiplayer_follower_manager = MultiplayerFollowerManager.new(@follower_viewport)
+          # Use same viewport as remote players for correct z-ordering
+          $multiplayer_follower_manager = MultiplayerFollowerManager.new(Spriteset_Map.viewport)
           puts "[Following] Follower manager initialized for multiplayer"
         end
 
@@ -290,11 +287,6 @@ class Scene_Map
     if $multiplayer_follower_manager
       $multiplayer_follower_manager.dispose
       $multiplayer_follower_manager = nil
-    end
-
-    if @follower_viewport
-      @follower_viewport.dispose
-      @follower_viewport = nil
     end
 
     multiplayer_consolidated_dispose
