@@ -65,34 +65,47 @@ class Scene_Map
   end
 
   def update_mmo_mouse_input
-    return unless defined?(MouseInput)
+    return unless pbWindowHasFocus? if defined?(pbWindowHasFocus?)
 
-    mouse_x = MouseInput.mouse_x
-    mouse_y = MouseInput.mouse_y
-    left_click = MouseInput.left_click?
-    right_click = MouseInput.right_click?
+    mouse_x = Input.mouse_x rescue 0
+    mouse_y = Input.mouse_y rescue 0
 
-    if left_click && !@mmo_last_mouse_state[0]
-      handle_mmo_mouse_click(mouse_x, mouse_y, 1)
+    left_down = Input.press?(Input::MOUSELEFT) rescue false
+    right_down = Input.press?(Input::MOUSERIGHT) rescue false
+    left_click = Input.trigger?(Input::MOUSELEFT) rescue false
+    right_click = Input.trigger?(Input::MOUSERIGHT) rescue false
+
+    if left_click
+      handle_mmo_mouse_click(mouse_x, mouse_y, :left)
     end
 
-    if right_click && !@mmo_last_mouse_state[1]
-      handle_mmo_mouse_click(mouse_x, mouse_y, 2)
+    if right_click
+      handle_mmo_mouse_click(mouse_x, mouse_y, :right)
     end
 
-    @mmo_last_mouse_state = [left_click, right_click, false]
+    if @mmo_last_mouse_state && @mmo_last_mouse_state[0] && !left_down
+      handle_mmo_mouse_release(mouse_x, mouse_y, :left)
+    end
+
+    @mmo_last_mouse_state = [left_down, right_down, false]
   end
 
   def handle_mmo_mouse_click(x, y, button)
-
     if @mmo_party_ui && @mmo_party_ui.handle_mouse_click(x, y, button)
-      return
+      return true
     end
 
     if @mmo_key_items_bar && @mmo_key_items_bar.handle_mouse_click(x, y, button)
-      return
+      return true
     end
+    false
+  end
 
+  def handle_mmo_mouse_release(x, y, button)
+    if @mmo_key_items_bar && @mmo_key_items_bar.handle_mouse_release(x, y, button)
+      return true
+    end
+    false
   end
 
   def toggle_mmo_ui

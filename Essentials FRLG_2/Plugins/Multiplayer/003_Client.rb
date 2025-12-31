@@ -964,6 +964,22 @@ class MultiplayerClient
       end
     end
 
+    # Load registered items for key items bar
+    if data.has_key?(:registered_items) || data.has_key?('registered_items')
+      registered_items = data[:registered_items] || data['registered_items']
+      if registered_items && $player && $player.respond_to?(:registered_key_items=)
+        # Convert string symbols back to symbols
+        registered_items = registered_items.map { |item| item.is_a?(String) ? item.to_sym : item }
+        $player.registered_key_items = registered_items
+        puts "Loaded registered items: #{registered_items.inspect}"
+
+        # Refresh the key items bar if it exists
+        if $mmo_key_items_bar && $mmo_key_items_bar.respond_to?(:refresh_items)
+          $mmo_key_items_bar.refresh_items
+        end
+      end
+    end
+
     if data.has_key?(:playtime_seconds) || data.has_key?('playtime_seconds')
       playtime_seconds = data[:playtime_seconds] || data['playtime_seconds'] || 0
       $multiplayer_playtime_base = playtime_seconds.to_i

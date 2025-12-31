@@ -521,6 +521,9 @@ class MultiplayerServer
     when :heartbeat, "heartbeat"
       client_info[:last_heartbeat] = Time.now
 
+    when :registered_items_update, "registered_items_update"
+      handle_registered_items_update(client_id, message[:data])
+
     when :follower_update, "follower_update"
       handle_follower_update(client_id, message[:data])
 
@@ -705,6 +708,7 @@ class MultiplayerServer
         variables: full_data ? (full_data[:variables] || {}) : {},
         self_switches: full_data ? (full_data[:self_switches] || {}) : {},
         pokedex: full_data ? (full_data[:pokedex] || {}) : {},
+        registered_items: full_data ? (full_data[:registered_items] || []) : [],
         playtime_seconds: full_data ? (full_data[:playtime_seconds] || 0) : 0,
         created_at: full_data ? full_data[:created_at] : nil
       }
@@ -909,6 +913,35 @@ class MultiplayerServer
       @player_data[client_id][:pokemon] = pokemon_data if @player_data[client_id]
       @logger.debug "[POKEMON-CHECK] #{username}: All Pokemon data valid"
     end
+  end
+
+  def handle_registered_items_update(client_id, data)
+    return unless @clients[client_id][:player_id]
+
+    player_id = @clients[client_id][:player_id]
+    registered_items = data[:registered_items]
+
+    if registered_items.is_a?(Array)
+      # Limit to 8 items max for safety
+      registered_items = registered_items.take(8)
+
+      # Save to database
+      save_player_registered_items(player_id, registered_items)
+
+      # Update in-memory state
+      @player_data[client_id][:registered_items] = registered_items if @player_data[client_id]
+
+      @logger.info "[REGISTERED ITEMS] Player #{player_id} updated registered items: #{registered_items.inspect}"
+    end
+  end
+
+  def save_player_registered_items(player_id, registered_items)
+    db = SQLite3::Database.new(@db_path)
+    db.execute("UPDATE players SET registered_items = ? WHERE id = ?",
+               [JSON.generate(registered_items), player_id])
+    db.close
+  rescue => e
+    @logger.error "Failed to save registered items for player #{player_id}: #{e.message}"
   end
 
   def handle_save_data(client_id, data)
@@ -2389,6 +2422,14 @@ class MultiplayerServer
       # Column already exists, ignore
     end
 
+    # Add registered_items column for key items bar persistence
+    begin
+      db.execute("ALTER TABLE players ADD COLUMN registered_items TEXT DEFAULT '[]'")
+      @logger.info "Added registered_items column to players table"
+    rescue SQLite3::SQLException => e
+      # Column already exists, ignore
+    end
+
     # Create bag/items table
     db.execute <<-SQL
       CREATE TABLE IF NOT EXISTS player_bag (
@@ -3163,6 +3204,18 @@ class MultiplayerServer
         @logger.info "[BADGE DEBUG] Player #{player_id} (#{player['username']}): No badges in DB, using default: #{badges.inspect}"
       end
 
+      # Load registered items
+      registered_items = []
+      if player['registered_items'] && !player['registered_items'].empty?
+        begin
+          registered_items = JSON.parse(player['registered_items'], symbolize_names: true)
+          @logger.info "[REGISTERED ITEMS] Player #{player_id}: Loaded registered items: #{registered_items.inspect}"
+        rescue JSON::ParserError => e
+          @logger.warn "Failed to parse registered_items for player #{player_id}: #{e.message}"
+          registered_items = []
+        end
+      end
+
       # Load Pokedex
       pokedex = {}
       pokedex_rows = db.execute("SELECT species, seen, owned FROM player_pokedex WHERE player_id = ?", [player_id])
@@ -3243,6 +3296,7 @@ class MultiplayerServer
         self_switches: self_switches,
         pokedex: pokedex,
         daycare: daycare,
+        registered_items: registered_items,
         playtime_seconds: player['playtime_seconds'] || 0,
         created_at: player['created_at']
       }
