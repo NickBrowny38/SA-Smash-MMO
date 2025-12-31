@@ -19,6 +19,14 @@ class Sprite_MultiplayerFollower < Sprite
       @send_out_timer = 0
       @last_pattern = -1
       @last_dir_row = -1
+      @follower_real_x = @player_event.screen_x.to_f
+      @follower_real_y = @player_event.screen_y.to_f
+      @target_x = @follower_real_x
+      @target_y = @follower_real_y
+      @position_history = []
+      @history_size = 12
+      @last_player_direction = @player_event.direction
+      @direction_change_delay = 0
       self.x = @player_event.screen_x
       self.y = @player_event.screen_y
       self.visible = false
@@ -105,9 +113,20 @@ class Sprite_MultiplayerFollower < Sprite
 
       screen_x = @player_event.screen_x
       screen_y = @player_event.screen_y
-      is_moving = (screen_x != @last_screen_x || screen_y != @last_screen_y)
+      player_moving = (screen_x != @last_screen_x || screen_y != @last_screen_y)
 
-      if !is_moving && @send_out_timer == 0
+      if player_moving
+        @position_history.push({ x: screen_x.to_f, y: screen_y.to_f, dir: @player_event.direction })
+        while @position_history.length > @history_size
+          @position_history.shift
+        end
+        @last_screen_x = screen_x
+        @last_screen_y = screen_y
+      end
+
+      follower_moving = (@follower_real_x - @target_x).abs > 0.5 || (@follower_real_y - @target_y).abs > 0.5
+
+      if !player_moving && !follower_moving && @send_out_timer == 0
         return
       end
 
@@ -119,52 +138,75 @@ class Sprite_MultiplayerFollower < Sprite
         self.opacity = 255 if @send_out_timer == 0
       end
 
-      if is_moving
-        @last_screen_x = screen_x
-        @last_screen_y = screen_y
-      end
-
-      if @current_direction != @player_event.direction
-        @current_direction = @player_event.direction
-        update_charset_bitmap if @charset
-      end
-
-      if is_moving && @charset
-        @anime_count += 1.5
-        if @anime_count >= 8
-          @pattern = (@pattern + 1) % 4
-          @anime_count = 0
-          update_charset_bitmap
+      if @position_history.length >= @history_size
+        old_pos = @position_history[0]
+        @target_x = old_pos[:x]
+        @target_y = old_pos[:y]
+        if old_pos[:dir] && @current_direction != old_pos[:dir]
+          @current_direction = old_pos[:dir]
+          update_charset_bitmap if @charset
         end
-      elsif @pattern != 0
-        @pattern = 0
-        update_charset_bitmap if @charset
+      elsif @position_history.length > 0
+        index = [0, @position_history.length - 4].max
+        old_pos = @position_history[index]
+        @target_x = old_pos[:x]
+        @target_y = old_pos[:y]
+        if old_pos[:dir] && @current_direction != old_pos[:dir]
+          @current_direction = old_pos[:dir]
+          update_charset_bitmap if @charset
+        end
+      else
+        behind_dir = 10 - @player_event.direction
+        tile_offset_x = 0
+        tile_offset_y = 0
+        case behind_dir
+        when 2 then tile_offset_y = 1
+        when 4 then tile_offset_x = -1
+        when 6 then tile_offset_x = 1
+        when 8 then tile_offset_y = -1
+        end
+        @target_x = screen_x + (tile_offset_x * 32)
+        @target_y = screen_y + (tile_offset_y * 32)
+        @current_direction = @player_event.direction
       end
 
-      behind_dir = 10 - @player_event.direction
-      tile_offset_x = 0
-      tile_offset_y = 0
-
-      case behind_dir
-      when 2 then tile_offset_y = 1
-      when 4 then tile_offset_x = -1
-      when 6 then tile_offset_x = 1
-      when 8 then tile_offset_y = -1
-      end
-
-      target_x = screen_x + (tile_offset_x * 32)
-      target_y = screen_y + (tile_offset_y * 32)
-
-      dx = target_x - self.x
-      dy = target_y - self.y
+      dx = @target_x - @follower_real_x
+      dy = @target_y - @follower_real_y
       dist_sq = dx * dx + dy * dy
 
-      if dist_sq > 0.25
-        speed = is_moving ? 0.4 : 0.2
-        self.x += dx * speed
-        self.y += dy * speed
+      if dist_sq > 1.0
+        if dist_sq > 2500
+          @follower_real_x = @target_x - dx * 0.3
+          @follower_real_y = @target_y - dy * 0.3
+        elsif dist_sq > 400
+          speed = 0.25
+          @follower_real_x += dx * speed
+          @follower_real_y += dy * speed
+        else
+          speed = 0.18
+          @follower_real_x += dx * speed
+          @follower_real_y += dy * speed
+        end
+
+        if @charset
+          @anime_count += 1.2
+          if @anime_count >= 8
+            @pattern = (@pattern + 1) % 4
+            @anime_count = 0
+            update_charset_bitmap
+          end
+        end
+      else
+        @follower_real_x = @target_x
+        @follower_real_y = @target_y
+        if @pattern != 0
+          @pattern = 0
+          update_charset_bitmap if @charset
+        end
       end
 
+      self.x = @follower_real_x.round
+      self.y = @follower_real_y.round
       self.z = @player_event.screen_z - 1
 
       if @send_out_timer == 0

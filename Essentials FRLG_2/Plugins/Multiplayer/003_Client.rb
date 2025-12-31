@@ -28,9 +28,12 @@ class MultiplayerClient
     @server_data_loaded = false
     @last_sent_x = nil
     @last_sent_y = nil
+    @last_sent_real_x = nil
+    @last_sent_real_y = nil
     @last_sent_map = nil
     @last_sent_dir = nil
     @last_sent_charset = nil
+    @last_update_time = nil
   end
 
   def connect(host, port, username, password = nil)
@@ -131,10 +134,13 @@ class MultiplayerClient
       @remote_players.clear
       @last_sent_x = nil
       @last_sent_y = nil
+      @last_sent_real_x = nil
+      @last_sent_real_y = nil
       @last_sent_map = nil
       @last_sent_dir = nil
       @last_sent_charset = nil
       @last_position_state = nil
+      @last_update_time = nil
       @last_sent_follower_species = nil
       if defined?(@other_player_followers) && @other_player_followers
         @other_player_followers.clear
@@ -187,30 +193,45 @@ class MultiplayerClient
     return unless $game_player
     return unless $player
 
+    time_now = System.uptime
+    @last_update_time ||= time_now
+    time_since_update = time_now - @last_update_time
+
     cur_x = $game_player.x
     cur_y = $game_player.y
+    cur_real_x = $game_player.real_x
+    cur_real_y = $game_player.real_y
     cur_map = $game_player.map.map_id
     cur_dir = $game_player.direction
     cur_charset = get_charset_name
 
-    position_changed = (cur_x != @last_sent_x || cur_y != @last_sent_y ||
-                       cur_map != @last_sent_map || cur_dir != @last_sent_dir ||
-                       cur_charset != @last_sent_charset)
+    tile_changed = (cur_x != @last_sent_x || cur_y != @last_sent_y ||
+                    cur_map != @last_sent_map || cur_dir != @last_sent_dir ||
+                    cur_charset != @last_sent_charset)
 
-    return unless position_changed
+    real_pos_changed = (@last_sent_real_x.nil? ||
+                        (cur_real_x - @last_sent_real_x).abs > 8 ||
+                        (cur_real_y - @last_sent_real_y).abs > 8)
+
+    should_send = tile_changed || (real_pos_changed && time_since_update >= @position_update_interval)
+
+    return unless should_send
 
     @last_sent_x = cur_x
     @last_sent_y = cur_y
+    @last_sent_real_x = cur_real_x
+    @last_sent_real_y = cur_real_y
     @last_sent_map = cur_map
     @last_sent_dir = cur_dir
     @last_sent_charset = cur_charset
+    @last_update_time = time_now
 
     player_data = {
       map_id: cur_map,
       x: cur_x,
       y: cur_y,
-      real_x: $game_player.real_x,
-      real_y: $game_player.real_y,
+      real_x: cur_real_x,
+      real_y: cur_real_y,
       direction: cur_dir,
       pattern: $game_player.pattern,
       move_speed: $game_player.move_speed,

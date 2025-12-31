@@ -29,6 +29,12 @@ class Game_RemotePlayer < Game_Character
     @moved_last_frame = false
     @moved_this_frame = false
     @needs_update = false
+    @velocity_x = 0.0
+    @velocity_y = 0.0
+    @last_target_x = 0
+    @last_target_y = 0
+    @interpolation_time = 0.0
+    @move_duration = 0.2
   end
 
   def name
@@ -41,40 +47,46 @@ class Game_RemotePlayer < Game_Character
   end
 
   def update_from_server_data(data)
-
     target_x = data[:x] || @x
     target_y = data[:y] || @y
-
     target_real_x = data[:real_x] || (target_x * 128)
     target_real_y = data[:real_y] || (target_y * 128)
 
     if @first_update
-
-      @x  =  target_x
+      @x = target_x
       @y = target_y
       @real_x = target_real_x
       @real_y = target_real_y
       @target_real_x = target_real_x
       @target_real_y = target_real_y
+      @last_target_x = target_real_x
+      @last_target_y = target_real_y
       @pattern = @original_pattern
       @anime_count = 0
       @first_update = false
     elsif (target_x - @x).abs > 2 || (target_y - @y).abs > 2
-
-      @x = target_x
-      @y  =  target_y
-      @real_x = target_real_x
-      @real_y  =  target_real_y
-      @target_real_x  =  target_real_x
-      @target_real_y = target_real_y
-      @pattern  =  @original_pattern
-      @anime_count = 0
-    else
-
       @x = target_x
       @y = target_y
+      @real_x = target_real_x
+      @real_y = target_real_y
       @target_real_x = target_real_x
       @target_real_y = target_real_y
+      @last_target_x = target_real_x
+      @last_target_y = target_real_y
+      @pattern = @original_pattern
+      @anime_count = 0
+      @interpolation_time = 0.0
+    else
+      @x = target_x
+      @y = target_y
+
+      if @target_real_x != target_real_x || @target_real_y != target_real_y
+        @last_target_x = @target_real_x
+        @last_target_y = @target_real_y
+        @target_real_x = target_real_x
+        @target_real_y = target_real_y
+        @interpolation_time = 0.0
+      end
 
       if (@real_x != @target_real_x || @real_y != @target_real_y) && !@moved_this_frame
         @anime_count = 0
@@ -89,11 +101,8 @@ class Game_RemotePlayer < Game_Character
         test_path = "Graphics/Characters/#{data[:charset]}"
         if FileTest.exist?(test_path + ".png") || FileTest.exist?(test_path)
           @character_name = data[:charset]
-        else
-          puts "[MULTIPLAYER] Ignoring invalid charset: #{data[:charset]} - file not found"
         end
-      rescue => e
-        puts "[MULTIPLAYER] Error validating charset: #{e.message}"
+      rescue
       end
     end
 
@@ -118,28 +127,27 @@ class Game_RemotePlayer < Game_Character
       dist_y = @target_real_y - @real_y
       dist_sq = dist_x * dist_x + dist_y * dist_y
 
-      if dist_sq > 16384
-        speed = 0.3
-      elsif dist_sq > 4096
-        speed = 0.25
-      else
-        speed = 0.20
-      end
-
-      if dist_x.abs > 2
-        move_x = (dist_x * speed).round
-        move_x = 1 if move_x.abs < 1 && dist_x.abs > 0
-        @real_x += move_x
-      else
+      if dist_sq > 65536
         @real_x = @target_real_x
-      end
-
-      if dist_y.abs > 2
-        move_y = (dist_y * speed).round
-        move_y = 1 if move_y.abs < 1 && dist_y.abs > 0
-        @real_y += move_y
-      else
         @real_y = @target_real_y
+      else
+        @interpolation_time += @delta_t
+        progress = [@interpolation_time / @move_duration, 1.0].min
+        eased = 1.0 - ((1.0 - progress) ** 2)
+
+        if dist_sq > 8192
+          lerp_speed = 0.15 + (eased * 0.2)
+        elsif dist_sq > 2048
+          lerp_speed = 0.12 + (eased * 0.15)
+        else
+          lerp_speed = 0.1 + (eased * 0.1)
+        end
+
+        @real_x += (dist_x * lerp_speed).round
+        @real_y += (dist_y * lerp_speed).round
+
+        @real_x = @target_real_x if (dist_x.abs < 4)
+        @real_y = @target_real_y if (dist_y.abs < 4)
       end
 
       @moved_this_frame = true
