@@ -20,7 +20,12 @@ class Sprite_MultiplayerFollower < Sprite
     off = behind_offset(@player_event.direction || 2)
     @world_x = @player_event.real_x + off[0]
     @world_y = @player_event.real_y + off[1]
+    @target_x = @world_x
+    @target_y = @world_y
     @direction = @player_event.direction || 2
+    # Track player position to detect actual movement vs just turning
+    @last_player_x = @player_event.real_x
+    @last_player_y = @player_event.real_y
     self.visible = false
     self.opacity = 0
     create_bitmap
@@ -106,20 +111,28 @@ class Sprite_MultiplayerFollower < Sprite
       self.opacity = 255 if @send_out_timer == 0
     end
 
-    # Always target position behind player
     player_dir = @player_event.direction || 2
-    off = behind_offset(player_dir)
-    target_x = @player_event.real_x + off[0]
-    target_y = @player_event.real_y + off[1]
+    player_x = @player_event.real_x
+    player_y = @player_event.real_y
 
-    dx = target_x - @world_x
-    dy = target_y - @world_y
+    # Only update target position when player actually moves (not just turns)
+    player_moved = (player_x != @last_player_x || player_y != @last_player_y)
+    if player_moved
+      off = behind_offset(player_dir)
+      @target_x = player_x + off[0]
+      @target_y = player_y + off[1]
+      @last_player_x = player_x
+      @last_player_y = player_y
+    end
+
+    dx = @target_x - @world_x
+    dy = @target_y - @world_y
     dist_sq = dx * dx + dy * dy
 
     if dist_sq > 16
-      if dist_sq > 147456  # Teleport if > 3 tiles away (avoids teleport on direction change)
-        @world_x = target_x
-        @world_y = target_y
+      if dist_sq > 147456  # Teleport if > 3 tiles away
+        @world_x = @target_x
+        @world_y = @target_y
       else
         # Smooth easing
         ease = 0.28
@@ -129,8 +142,8 @@ class Sprite_MultiplayerFollower < Sprite
         move_y = (dy > 0 ? 1 : -1) if move_y == 0 && dy != 0
         @world_x += move_x
         @world_y += move_y
-        @world_x = target_x if dx.abs < 4
-        @world_y = target_y if dy.abs < 4
+        @world_x = @target_x if dx.abs < 4
+        @world_y = @target_y if dy.abs < 4
       end
 
       # Face direction of movement
