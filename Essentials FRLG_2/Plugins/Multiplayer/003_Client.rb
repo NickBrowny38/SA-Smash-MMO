@@ -13,7 +13,7 @@ class MultiplayerClient
 
   def initialize
     @socket = nil
-    @connected  =  false
+    @connected = false
     @username = nil
     @my_client_id = nil
     @server_host = nil
@@ -21,14 +21,20 @@ class MultiplayerClient
     @remote_players = {}
     @social_player_list = []
     @message_queue = Queue.new
-    @receive_thread  =  nil
+    @receive_thread = nil
     @heartbeat_thread = nil
     @last_position_update = 0
     @position_update_interval = 0.05
     @disconnected_during_battle = false
     @server_data_loaded = false
-    @connection_error = nil
-    @connection_state = :disconnected
+    @last_sent_x = nil
+    @last_sent_y = nil
+    @last_sent_real_x = nil
+    @last_sent_real_y = nil
+    @last_sent_map = nil
+    @last_sent_dir = nil
+    @last_sent_charset = nil
+    @last_update_time = nil
   end
 
   def connect(host, port, username, password = nil)
@@ -151,6 +157,19 @@ class MultiplayerClient
       @heartbeat_thread.kill if @heartbeat_thread
       @heartbeat_thread = nil
       @remote_players.clear
+      @last_sent_x = nil
+      @last_sent_y = nil
+      @last_sent_real_x = nil
+      @last_sent_real_y = nil
+      @last_sent_map = nil
+      @last_sent_dir = nil
+      @last_sent_charset = nil
+      @last_position_state = nil
+      @last_update_time = nil
+      @last_sent_follower_species = nil
+      if defined?(@other_player_followers) && @other_player_followers
+        @other_player_followers.clear
+      end
       puts 'Disconnected from multiplayer server' if was_connected
     end
   end
@@ -199,20 +218,52 @@ class MultiplayerClient
     return unless $game_player
     return unless $player
 
-    player_data  =  {
-      map_id: $game_player.map.map_id,
-      x: $game_player.x,
-      y: $game_player.y,
-      real_x: $game_player.real_x,
-      real_y: $game_player.real_y,
-      direction: $game_player.direction,
+    time_now = System.uptime
+    @last_update_time ||= time_now
+    time_since_update = time_now - @last_update_time
+
+    cur_x = $game_player.x
+    cur_y = $game_player.y
+    cur_real_x = $game_player.real_x
+    cur_real_y = $game_player.real_y
+    cur_map = $game_player.map.map_id
+    cur_dir = $game_player.direction
+    cur_charset = get_charset_name
+
+    tile_changed = (cur_x != @last_sent_x || cur_y != @last_sent_y ||
+                    cur_map != @last_sent_map || cur_dir != @last_sent_dir ||
+                    cur_charset != @last_sent_charset)
+
+    real_pos_changed = (@last_sent_real_x.nil? ||
+                        (cur_real_x - @last_sent_real_x).abs > 8 ||
+                        (cur_real_y - @last_sent_real_y).abs > 8)
+
+    should_send = tile_changed || (real_pos_changed && time_since_update >= @position_update_interval)
+
+    return unless should_send
+
+    @last_sent_x = cur_x
+    @last_sent_y = cur_y
+    @last_sent_real_x = cur_real_x
+    @last_sent_real_y = cur_real_y
+    @last_sent_map = cur_map
+    @last_sent_dir = cur_dir
+    @last_sent_charset = cur_charset
+    @last_update_time = time_now
+
+    player_data = {
+      map_id: cur_map,
+      x: cur_x,
+      y: cur_y,
+      real_x: cur_real_x,
+      real_y: cur_real_y,
+      direction: cur_dir,
       pattern: $game_player.pattern,
       move_speed: $game_player.move_speed,
       movement_type: get_movement_type,
-      charset: get_charset_name
+      charset: cur_charset
     }
 
-    # Include money and badges in position updates for real-time sync
     if @server_data_loaded && $player
       player_data[:money] = $player.money.to_i if $player.respond_to?(:money)
       player_data[:badge_count] = $player.badge_count.to_i if $player.respond_to?(:badge_count)
@@ -769,16 +820,20 @@ class MultiplayerClient
   end
 
   def handle_position_update(data)
-    player_id  =  data[:id]
-    old_map = @remote_players[player_id] ? @remote_players[player_id][:map_id] : nil
-    new_map = data[:map_id]
+    player_id = data[:id]
+    existing = @remote_players[player_id]
 
-    if old_map && new_map && old_map != new_map
-      puts "[CLIENT] *** Player #{player_id} WARPED from map #{old_map} to map #{new_map} ***"
-    end
-
-    if @remote_players[player_id]
-      @remote_players[player_id].merge!(data)
+    if existing
+      existing[:map_id] = data[:map_id] if data[:map_id]
+      existing[:x] = data[:x] if data[:x]
+      existing[:y] = data[:y] if data[:y]
+      existing[:real_x] = data[:real_x] if data[:real_x]
+      existing[:real_y] = data[:real_y] if data[:real_y]
+      existing[:direction] = data[:direction] if data[:direction]
+      existing[:pattern] = data[:pattern] if data[:pattern]
+      existing[:move_speed] = data[:move_speed] if data[:move_speed]
+      existing[:charset] = data[:charset] if data[:charset]
+      existing[:movement_type] = data[:movement_type] if data[:movement_type]
     else
       @remote_players[player_id] = data
     end

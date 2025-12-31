@@ -9,14 +9,6 @@ def mmo_create_following_pokemon
   return unless $game_temp && $game_temp.respond_to?(:followers)
   return unless $PokemonGlobal && $PokemonGlobal.respond_to?(:followers)
 
-  # Check if a follower already exists
-  if FollowingPkmn.respond_to?(:get) && FollowingPkmn.get
-    puts "[Following] Follower already exists, just refreshing"
-    $PokemonGlobal.follower_toggled = true
-    FollowingPkmn.refresh(true) if FollowingPkmn.respond_to?(:refresh)
-    return
-  end
-
   # Get position behind the player
   behind_direction = 10 - $game_player.direction
   behind_x = $game_player.x
@@ -27,6 +19,22 @@ def mmo_create_following_pokemon
   when 4 then behind_x += 1  # Player facing right, follower behind (to the right)
   when 6 then behind_x -= 1  # Player facing left, follower behind (to the left)
   when 8 then behind_y += 1  # Player facing down, follower behind (above)
+  end
+
+  # Check if a follower already exists - reset position to prevent desync on relog
+  if FollowingPkmn.respond_to?(:get) && FollowingPkmn.get
+    follower = FollowingPkmn.get
+    follower.instance_variable_set(:@last_leader_x, $game_player.x)
+    follower.instance_variable_set(:@last_leader_y, $game_player.y)
+    follower.instance_variable_set(:@move_route_forcing, false)
+    follower.moveto(behind_x, behind_y)
+    follower.instance_variable_set(:@real_x, behind_x * Game_Map::REAL_RES_X)
+    follower.instance_variable_set(:@real_y, behind_y * Game_Map::REAL_RES_Y)
+    follower.straighten if follower.respond_to?(:straighten)
+    $PokemonGlobal.follower_toggled = true
+    FollowingPkmn.refresh(true) if FollowingPkmn.respond_to?(:refresh)
+    puts "[Following] Follower position reset after relog"
+    return
   end
 
   # Get the first Pokemon for the follower sprite
@@ -226,11 +234,8 @@ class Scene_Map
       if defined?(FollowingPkmn) && defined?(MultiplayerFollowerManager)
 
         if !$multiplayer_follower_manager && @remote_player_manager
-          if !@follower_viewport
-            @follower_viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
-            @follower_viewport.z  =  99998
-          end
-          $multiplayer_follower_manager = MultiplayerFollowerManager.new(@follower_viewport)
+          # Use same viewport as remote players for correct z-ordering
+          $multiplayer_follower_manager = MultiplayerFollowerManager.new(Spriteset_Map.viewport)
           puts "[Following] Follower manager initialized for multiplayer"
         end
 
@@ -282,11 +287,6 @@ class Scene_Map
     if $multiplayer_follower_manager
       $multiplayer_follower_manager.dispose
       $multiplayer_follower_manager = nil
-    end
-
-    if @follower_viewport
-      @follower_viewport.dispose
-      @follower_viewport = nil
     end
 
     multiplayer_consolidated_dispose
