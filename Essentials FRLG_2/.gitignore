@@ -1,1 +1,19 @@
-.claude/
+# Compiled plugin scripts
+Data/PluginScripts.rxdata
+
+# User-specific data files
+multiplayer_credentials.dat
+options.dat
+
+# Save files
+*.rxdata2
+Game.rxdata
+Game_*.rxdata
+
+# Backup files
+*.bak
+*~
+
+# System files
+Thumbs.db
+.DS_Store
