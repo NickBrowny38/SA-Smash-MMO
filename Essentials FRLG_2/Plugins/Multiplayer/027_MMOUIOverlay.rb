@@ -781,15 +781,8 @@ class MMOKeyItemsBar
             end
           end
         end
-      elsif ItemHandlers.hasUseInField(item_id)
-        # Items that can be used in the field (like Repel, Escape Rope)
-        ret = ItemHandlers.triggerUseInField(item_id)
-        if ret
-          $bag.remove(item_id, 1) if ret == 1  # Consumed
-          refresh_items
-        end
       else
-        # Standard UseFromBag handler (TMs, key items, etc.)
+        # Standard UseFromBag handler (TMs, key items, field items like Town Map)
         ret = ItemHandlers.triggerUseFromBag(item_id)
         refresh_items if ret
       end
