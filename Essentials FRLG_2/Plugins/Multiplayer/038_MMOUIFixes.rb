@@ -1058,18 +1058,96 @@ def pbTopRightWindow(text, scene = nil)
   window.dispose
 end
 
+# Override pbFadeOutIn and pbFadeOutInWithMusic - remove fades for menu transitions
+# Map transitions are handled separately via Scene_Map.transfer_player hook
 alias mmo_ui_original_pbFadeOutInWithMusic pbFadeOutInWithMusic
 
-def pbFadeOutInWithMusic(zViewport  =  99999, nofadeout  =  false)
-
+def pbFadeOutInWithMusic(zViewport = 99999, nofadeout = false)
+  # No fade for menu transitions - just execute the block
   yield
 end
 
 alias mmo_ui_original_pbFadeOutIn pbFadeOutIn
 
 def pbFadeOutIn(zViewport = 99999, nofadeout = false)
-
+  # No fade for menu transitions - just execute the block
   yield
+end
+
+#-------------------------------------------------------------------------------
+# Map transition visual effect - hooks into Scene_Map.transfer_player
+# Only adds fade effect for door/cave transfers (event-triggered), not for
+# walking between connected outdoor areas
+#-------------------------------------------------------------------------------
+class Scene_Map
+  alias mmo_map_transition_transfer_player transfer_player
+
+  def transfer_player(cancel_swimming = true)
+    # Check if we're actually changing maps (not just moving on same map)
+    changing_maps = $game_map.map_id != $game_temp.player_new_map_id
+
+    # Detect if this is an event-triggered transfer (door/cave/warp)
+    # Event transfers happen when an Interpreter is running command_201
+    # Connected area transfers happen automatically without an interpreter
+    is_event_transfer = pbMapInterpreterRunning?
+
+    # Only add fade for event-triggered map changes that don't already have transition
+    if changing_maps && is_event_transfer && !$game_temp.transition_processing
+      # Door/cave event didn't set up a transition, so we add our own
+      # Create fade-out effect
+      mmo_fade_out_for_transfer
+
+      # Do the actual transfer
+      mmo_map_transition_transfer_player(cancel_swimming)
+
+      # Create fade-in effect
+      mmo_fade_in_after_transfer
+    else
+      # Either same-map transfer, connected area, or event already handling transition
+      mmo_map_transition_transfer_player(cancel_swimming)
+    end
+  end
+
+  def mmo_fade_out_for_transfer
+    return if @mmo_transfer_viewport  # Already fading
+
+    @mmo_transfer_viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
+    @mmo_transfer_viewport.z = 99999
+
+    @mmo_transfer_overlay = Sprite.new(@mmo_transfer_viewport)
+    @mmo_transfer_overlay.bitmap = Bitmap.new(Graphics.width, Graphics.height)
+    @mmo_transfer_overlay.bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(0, 0, 0))
+    @mmo_transfer_overlay.opacity = 0
+    @mmo_transfer_overlay.z = 99999
+
+    # Fade to black over 8 frames
+    8.times do
+      @mmo_transfer_overlay.opacity += 32
+      @mmo_transfer_overlay.opacity = 255 if @mmo_transfer_overlay.opacity > 255
+      Graphics.update
+    end
+  end
+
+  def mmo_fade_in_after_transfer
+    return unless @mmo_transfer_viewport
+
+    # Brief pause at full black
+    4.times { Graphics.update }
+
+    # Fade in over 8 frames
+    8.times do
+      @mmo_transfer_overlay.opacity -= 32
+      @mmo_transfer_overlay.opacity = 0 if @mmo_transfer_overlay.opacity < 0
+      Graphics.update
+    end
+
+    # Cleanup
+    @mmo_transfer_overlay.bitmap.dispose if @mmo_transfer_overlay.bitmap && !@mmo_transfer_overlay.bitmap.disposed?
+    @mmo_transfer_overlay.dispose if @mmo_transfer_overlay && !@mmo_transfer_overlay.disposed?
+    @mmo_transfer_viewport.dispose if @mmo_transfer_viewport && !@mmo_transfer_viewport.disposed?
+    @mmo_transfer_viewport = nil
+    @mmo_transfer_overlay = nil
+  end
 end
 
 ItemHandlers::UseOnPokemon.add(:RARECANDY, proc { |item, qty, pkmn, scene|
@@ -1132,6 +1210,6 @@ puts "[MMO UI Fixes] All menus now display instantly without fade effects"
 puts "[MMO UI Fixes] TM/HM usage opens summary without fade"
 puts "[MMO UI Fixes] Evolution screen: centered 512x384 with light background, dimmed map outside, saves to server"
 puts "[MMO UI Fixes] Stat window (rare candy/level up) positioned within centered area"
-puts '[MMO UI Fixes] pbFadeOutInWithMusic & pbFadeOutIn overridden - all fade/black screens removed'
+puts '[MMO UI Fixes] Door/cave transitions use fade effect, menu transitions are instant'
 puts "[MMO UI Fixes] Party screen shows overworld behind (no black screen), double-save for evolution persistence"
 puts "[MMO UI Fixes] Event pictures (Show Picture) centered for 800x600 resolution"
