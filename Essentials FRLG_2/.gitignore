@@ -17,3 +17,6 @@ Game_*.rxdata
 # System files
 Thumbs.db
 .DS_Store
+
+# Claude Code settings (contains sensitive data)
+.claude/
