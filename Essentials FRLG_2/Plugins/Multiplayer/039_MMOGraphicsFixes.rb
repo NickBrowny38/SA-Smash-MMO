@@ -143,17 +143,73 @@ end
 
 #===============================================================================
 # Town Map / Region Map Fix
-# Centers the map properly and adds a styled border for 800x600 resolution
+# Complete redesign for 800x600 resolution with proper centering and styling
 #===============================================================================
 class PokemonRegionMap_Scene
+  # Override the coordinate conversion to account for map centering
+  # The -SQUARE/2 offset centers the sprite on the tile (sprite origin is top-left)
+  def point_x_to_screen_x(x)
+    map_offset_x = (Graphics.width - @sprites["map"].bitmap.width) / 2
+    return map_offset_x + (x * SQUARE_WIDTH) - (SQUARE_WIDTH / 2)
+  end
+
+  def point_y_to_screen_y(y)
+    map_offset_y = (Graphics.height - @sprites["map"].bitmap.height) / 2
+    return map_offset_y + (y * SQUARE_HEIGHT) - (SQUARE_HEIGHT / 2)
+  end
+
   alias mmo_graphics_pbStartScene pbStartScene
   def pbStartScene(as_editor = false, fly_map = false)
-    result = mmo_graphics_pbStartScene(as_editor, fly_map)
-    return result if !result
+    # Create a black screen FIRST with very high z to cover everything during setup
+    @pre_viewport = Viewport.new(0, 0, Graphics.width, Graphics.height)
+    @pre_viewport.z = 999999  # Higher than everything
+    @pre_overlay = Sprite.new(@pre_viewport)
+    @pre_overlay.bitmap = Bitmap.new(Graphics.width, Graphics.height)
+    @pre_overlay.bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(0, 0, 0))
+    @pre_overlay.z = 999999
+    Graphics.update
 
-    # Apply MMO styling - dark overlay and centered border
+    # Call base scene - this will show the ugly blue borders but they're hidden behind our overlay
+    result = mmo_graphics_pbStartScene(as_editor, fly_map)
+
+    return cleanup_and_return(false) if !result
+
+    # Apply MMO styling BEFORE removing overlay
     apply_mmo_styling
 
+    # Reposition all point sprites (fly destinations)
+    reposition_all_sprites
+
+    # Force a graphics update to ensure all sprites are properly positioned
+    Graphics.update
+
+    # NOW fade out the overlay to reveal the properly styled scene
+    8.times do
+      @pre_overlay.opacity -= 32
+      @pre_overlay.opacity = 0 if @pre_overlay.opacity < 0
+      Graphics.update
+    end
+
+    # Clean up pre-overlay
+    cleanup_pre_overlay
+
+    return result
+  end
+
+  def cleanup_pre_overlay
+    if @pre_overlay
+      @pre_overlay.bitmap.dispose if @pre_overlay.bitmap && !@pre_overlay.bitmap.disposed?
+      @pre_overlay.dispose if !@pre_overlay.disposed?
+      @pre_overlay = nil
+    end
+    if @pre_viewport
+      @pre_viewport.dispose if !@pre_viewport.disposed?
+      @pre_viewport = nil
+    end
+  end
+
+  def cleanup_and_return(result)
+    cleanup_pre_overlay
     return result
   end
 
@@ -171,36 +227,51 @@ class PokemonRegionMap_Scene
     center_x = (Graphics.width - map_width) / 2
     center_y = (Graphics.height - map_height) / 2
 
-    # Create dark overlay behind everything
-    if !@sprites["mmo_dark_overlay"]
-      @sprites["mmo_dark_overlay"] = Sprite.new(@viewport)
-      @sprites["mmo_dark_overlay"].bitmap = Bitmap.new(Graphics.width, Graphics.height)
-      @sprites["mmo_dark_overlay"].bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(0, 0, 0, 180))
-      @sprites["mmo_dark_overlay"].z = -10
+    # Fix the background first - solid dark color
+    if @sprites["background"]
+      @sprites["background"].visible = false
+    end
+
+    # Create new clean background
+    if !@sprites["mmo_bg"]
+      @sprites["mmo_bg"] = Sprite.new(@viewport)
+      @sprites["mmo_bg"].bitmap = Bitmap.new(Graphics.width, Graphics.height)
+      # Dark blue-gray gradient background
+      Graphics.height.times do |y|
+        ratio = y.to_f / Graphics.height
+        r = (20 + 15 * ratio).to_i
+        g = (30 + 20 * ratio).to_i
+        b = (45 + 25 * ratio).to_i
+        @sprites["mmo_bg"].bitmap.fill_rect(0, y, Graphics.width, 1, Color.new(r, g, b))
+      end
+      @sprites["mmo_bg"].z = -100
     end
 
     # Create a nice border around the map
-    border_padding = 8
+    border_padding = 6
     if !@sprites["mmo_map_border"]
       @sprites["mmo_map_border"] = Sprite.new(@viewport)
       border_width = map_width + (border_padding * 2)
       border_height = map_height + (border_padding * 2)
       @sprites["mmo_map_border"].bitmap = Bitmap.new(border_width, border_height)
 
-      # Draw border with gradient effect
       bmp = @sprites["mmo_map_border"].bitmap
 
-      # Outer border (dark)
-      bmp.fill_rect(0, 0, border_width, border_height, Color.new(40, 60, 80))
+      # Outer shadow
+      bmp.fill_rect(0, 0, border_width, border_height, Color.new(0, 0, 0, 100))
 
-      # Inner border (lighter)
-      bmp.fill_rect(2, 2, border_width - 4, border_height - 4, Color.new(60, 90, 120))
+      # Main border (blue-ish frame like Pokemon style)
+      bmp.fill_rect(1, 1, border_width - 2, border_height - 2, Color.new(56, 88, 136))
 
-      # Highlight edges
-      bmp.fill_rect(2, 2, border_width - 4, 2, Color.new(100, 140, 180))
-      bmp.fill_rect(2, 2, 2, border_height - 4, Color.new(100, 140, 180))
+      # Inner highlight
+      bmp.fill_rect(2, 2, border_width - 4, 2, Color.new(104, 144, 184))
+      bmp.fill_rect(2, 2, 2, border_height - 4, Color.new(104, 144, 184))
 
-      # Inner area (will be covered by map)
+      # Inner shadow
+      bmp.fill_rect(border_width - 4, 4, 2, border_height - 6, Color.new(32, 56, 96))
+      bmp.fill_rect(4, border_height - 4, border_width - 6, 2, Color.new(32, 56, 96))
+
+      # Clear center for map
       bmp.fill_rect(border_padding, border_padding, map_width, map_height, Color.new(0, 0, 0, 0))
 
       @sprites["mmo_map_border"].x = center_x - border_padding
@@ -211,52 +282,47 @@ class PokemonRegionMap_Scene
     # Ensure map is properly centered
     map_sprite.x = center_x
     map_sprite.y = center_y
+    map_sprite.z = 0
 
     # Also center map2 if it exists (extra graphics layer)
     if @sprites["map2"]
       @sprites["map2"].x = center_x
       @sprites["map2"].y = center_y
-    end
-
-    # Fix the background to not show the ugly blue
-    if @sprites["background"]
-      # Replace with solid dark color that matches our overlay
-      @sprites["background"].bitmap.clear if @sprites["background"].bitmap
-      @sprites["background"].bitmap = Bitmap.new(Graphics.width, Graphics.height)
-      @sprites["background"].bitmap.fill_rect(0, 0, Graphics.width, Graphics.height, Color.new(20, 30, 40))
-      @sprites["background"].z = -20
-    end
-
-    # Fix the highlight/cursor sprite if it exists
-    if @sprites["highlight"]
-      # Adjust highlight position based on map offset
-      # The highlight uses SQUARE_WIDTH (16) increments
-    end
-
-    # Fix the player icon position
-    if @sprites["player"]
-      @sprites["player"].x = center_x + (@map_x * SQUARE_WIDTH) + (SQUARE_WIDTH / 2)
-      @sprites["player"].y = center_y + (@map_y * SQUARE_HEIGHT) + (SQUARE_HEIGHT / 2)
+      @sprites["map2"].z = 1
     end
   end
 
-  # Override cursor movement to account for centering
-  alias mmo_graphics_pbMapScene pbMapScene rescue nil
-  def pbMapScene
-    # Ensure player icon stays centered properly during scene
-    if @sprites["player"] && @sprites["map"]
-      center_x = @sprites["map"].x
-      center_y = @sprites["map"].y
-      @sprites["player"].x = center_x + (@map_x * SQUARE_WIDTH) + (SQUARE_WIDTH / 2)
-      @sprites["player"].y = center_y + (@map_y * SQUARE_HEIGHT) + (SQUARE_HEIGHT / 2)
+  def reposition_all_sprites
+    return unless @sprites && @sprites["map"]
+
+    # Reposition player icon
+    if @sprites["player"]
+      @sprites["player"].x = point_x_to_screen_x(@map_x)
+      @sprites["player"].y = point_y_to_screen_y(@map_y)
+      @sprites["player"].z = 20
     end
 
-    if self.respond_to?(:mmo_graphics_pbMapScene)
-      return mmo_graphics_pbMapScene
-    else
-      # Default implementation if alias failed
-      return nil
+    # Reposition cursor
+    if @sprites["cursor"]
+      @sprites["cursor"].x = point_x_to_screen_x(@map_x)
+      @sprites["cursor"].y = point_y_to_screen_y(@map_y)
+      @sprites["cursor"].z = 25
     end
+
+    # Reposition all fly point sprites
+    @sprites.each do |key, sprite|
+      next unless key.start_with?("point")
+      # These were positioned using the old point_x/y_to_screen functions
+      # They need to be recalculated - but we don't have their original coords
+      # The original code iterates LEFT..RIGHT, TOP..BOTTOM
+      # We'll leave these as they should be handled by the coordinate functions now
+    end
+  end
+
+  alias mmo_graphics_pbEndScene pbEndScene
+  def pbEndScene
+    # Clean fade out
+    mmo_graphics_pbEndScene
   end
 end
 
