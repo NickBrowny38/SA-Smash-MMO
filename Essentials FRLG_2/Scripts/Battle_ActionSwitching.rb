@@ -294,6 +294,18 @@ class Battle
       pbSetSeen(@battlers[b[0]])
       @usedInBattle[b[0] & 1][b[0] / 2] = true
     end
+    # Play low HP sound if player Pokemon enters battle with low HP
+    # Check after all battlers are set up to avoid state issues
+    sendOuts.each do |b|
+      idx = b[0]
+      next if idx.odd?  # Only player side (even indices)
+      pkmn = b[1]       # The Pokemon object from sendOuts
+      next unless pkmn && pkmn.hp > 0
+      if pkmn.hp <= pkmn.totalhp / 4
+        pbSEPlay("Low Health")
+        break
+      end
+    end
   end
 
   #=============================================================================
