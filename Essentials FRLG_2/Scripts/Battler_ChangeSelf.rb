@@ -20,12 +20,11 @@ class Battle::Battler
             pbSEPlay("Low Health")
           end
         end
-        @droppedBelowQuarterHP = true 
+        @droppedBelowQuarterHP = true
       end
       @tookDamageThisRound = true
       @tookMoveDamageThisRound = true
     end
-
     return amt
   end
 
