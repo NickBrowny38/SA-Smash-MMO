@@ -77,16 +77,22 @@ class Scene_Map
         @mmo_ui_recovery_cooldown -= 1 if @mmo_ui_recovery_cooldown > 0
 
         if @mmo_ui_recovery_cooldown <= 0
+          needs_recovery = false
+
           if !@mmo_ui_overlay || !@mmo_party_ui || !@mmo_key_items_bar
-            puts "[MMO UI] CRITICAL: UI components disappeared - attempting recovery"
-            @mmo_ui_recovery_cooldown = 60  # Wait 60 frames before trying again
-            initialize_mmo_ui if respond_to?(:initialize_mmo_ui)
+            needs_recovery = true
+          elsif @mmo_ui_overlay.respond_to?(:disposed?) && @mmo_ui_overlay.disposed?
+            needs_recovery = true
           end
 
-          if @mmo_ui_overlay && @mmo_ui_overlay.respond_to?(:disposed?) && @mmo_ui_overlay.disposed?
-            puts "[MMO UI] CRITICAL: UI overlay was disposed - recreating"
-            @mmo_ui_recovery_cooldown = 60
+          if needs_recovery
+            # Only log once per recovery attempt, not every frame
+            puts "[MMO UI] Recovering UI components..." unless @mmo_ui_last_recovery_logged
+            @mmo_ui_last_recovery_logged = true
+            @mmo_ui_recovery_cooldown = 120  # Wait 2 seconds before trying again
             initialize_mmo_ui if respond_to?(:initialize_mmo_ui)
+          else
+            @mmo_ui_last_recovery_logged = false
           end
         end
 

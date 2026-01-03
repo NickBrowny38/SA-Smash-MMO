@@ -239,13 +239,15 @@ EventHandlers.add(:on_frame_update, :mmo_ui_update,
   }
 )
 
-EventHandlers.add(:on_leave_map, :mmo_ui_dispose,
-  proc {
-    if $scene.is_a?(Scene_Map) && $scene.respond_to?(:dispose_mmo_ui)
-      $scene.dispose_mmo_ui
-    end
-  }
-)
+# REMOVED: Don't dispose MMO UI on map change - it should persist across maps
+# The UI is only disposed when leaving Scene_Map entirely (scene change)
+# EventHandlers.add(:on_leave_map, :mmo_ui_dispose,
+#   proc {
+#     if $scene.is_a?(Scene_Map) && $scene.respond_to?(:dispose_mmo_ui)
+#       $scene.dispose_mmo_ui
+#     end
+#   }
+# )
 
 EventHandlers.add(:on_party_changed, :refresh_mmo_party_ui,
   proc {
