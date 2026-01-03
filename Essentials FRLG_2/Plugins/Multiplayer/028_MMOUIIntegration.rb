@@ -6,6 +6,14 @@ class Scene_Map
   def initialize_mmo_ui
     return if @mmo_ui_initialized
 
+    # Prevent rapid re-initialization (cooldown of 30 frames)
+    @mmo_ui_init_cooldown ||= 0
+    if @mmo_ui_init_cooldown > 0
+      @mmo_ui_init_cooldown -= 1
+      return
+    end
+    @mmo_ui_init_cooldown = 30
+
     puts '[MMO UI] Initializing MMO UI overlay...'
 
     @mmo_ui_overlay = MMOUIOverlay.new

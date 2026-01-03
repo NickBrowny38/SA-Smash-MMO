@@ -63,46 +63,62 @@ class Scene_Map
 
     return if @disposed || @mmo_ui_transitioning
 
-    if pbIsMultiplayerMode?
+    # Prevent reentrant calls that cause stack overflow
+    return if @mmo_ui_updating
+    @mmo_ui_updating = true
 
-      @mmo_ui_visible = true if @mmo_ui_visible.nil?
+    begin
+      if pbIsMultiplayerMode?
 
-      if !@mmo_ui_overlay || !@mmo_party_ui || !@mmo_key_items_bar
-        puts "[MMO UI] CRITICAL: UI components disappeared - attempting recovery"
-        initialize_mmo_ui if respond_to?(:initialize_mmo_ui)
-      end
+        @mmo_ui_visible = true if @mmo_ui_visible.nil?
 
-      if @mmo_ui_overlay && @mmo_ui_overlay.respond_to?(:disposed?) && @mmo_ui_overlay.disposed?
-        puts "[MMO UI] CRITICAL: UI overlay was disposed - recreating"
-        initialize_mmo_ui if respond_to?(:initialize_mmo_ui)
-      end
+        # Only attempt recovery once per frame, with cooldown
+        @mmo_ui_recovery_cooldown ||= 0
+        @mmo_ui_recovery_cooldown -= 1 if @mmo_ui_recovery_cooldown > 0
 
-      if @mmo_ui_visible
+        if @mmo_ui_recovery_cooldown <= 0
+          if !@mmo_ui_overlay || !@mmo_party_ui || !@mmo_key_items_bar
+            puts "[MMO UI] CRITICAL: UI components disappeared - attempting recovery"
+            @mmo_ui_recovery_cooldown = 60  # Wait 60 frames before trying again
+            initialize_mmo_ui if respond_to?(:initialize_mmo_ui)
+          end
 
-        if @mmo_ui_overlay && @mmo_ui_overlay.respond_to?(:visible)
-          unless @mmo_ui_overlay.visible
-            puts '[MMO UI] ALERT: Overlay hidden when it should be visible! Restoring...'
-            @mmo_ui_overlay.visible = true
+          if @mmo_ui_overlay && @mmo_ui_overlay.respond_to?(:disposed?) && @mmo_ui_overlay.disposed?
+            puts "[MMO UI] CRITICAL: UI overlay was disposed - recreating"
+            @mmo_ui_recovery_cooldown = 60
+            initialize_mmo_ui if respond_to?(:initialize_mmo_ui)
           end
         end
 
-        if @mmo_party_ui && @mmo_party_ui.respond_to?(:visible)
-          unless @mmo_party_ui.visible
-            puts "[MMO UI] ALERT: Party UI hidden when it should be visible! Restoring..."
-            @mmo_party_ui.visible = true
-          end
-        end
+        if @mmo_ui_visible
 
-        if @mmo_key_items_bar && @mmo_key_items_bar.respond_to?(:visible)
-          unless @mmo_key_items_bar.visible
-            puts "[MMO UI] ALERT: Key items bar hidden when it should be visible! Restoring..."
-            @mmo_key_items_bar.visible  =  true
+          if @mmo_ui_overlay && @mmo_ui_overlay.respond_to?(:visible)
+            unless @mmo_ui_overlay.visible
+              puts '[MMO UI] ALERT: Overlay hidden when it should be visible! Restoring...'
+              @mmo_ui_overlay.visible = true
+            end
+          end
+
+          if @mmo_party_ui && @mmo_party_ui.respond_to?(:visible)
+            unless @mmo_party_ui.visible
+              puts "[MMO UI] ALERT: Party UI hidden when it should be visible! Restoring..."
+              @mmo_party_ui.visible = true
+            end
+          end
+
+          if @mmo_key_items_bar && @mmo_key_items_bar.respond_to?(:visible)
+            unless @mmo_key_items_bar.visible
+              puts "[MMO UI] ALERT: Key items bar hidden when it should be visible! Restoring..."
+              @mmo_key_items_bar.visible = true
+            end
           end
         end
       end
+
+      robust_update_mmo_ui if defined?(robust_update_mmo_ui)
+    ensure
+      @mmo_ui_updating = false
     end
-
-    robust_update_mmo_ui if defined?(robust_update_mmo_ui)
   end
 
   def restore_mmo_ui_after_battle
