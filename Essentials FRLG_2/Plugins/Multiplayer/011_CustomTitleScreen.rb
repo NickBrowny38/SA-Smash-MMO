@@ -2,21 +2,9 @@ class PokemonLoadScreen
   alias multiplayer_pbStartLoadScreen pbStartLoadScreen unless method_defined?(:multiplayer_pbStartLoadScreen)
 
   def pbStartLoadScreen
-    mode = pbGameModeSelection
-
-    case mode
-    when GameMode::SINGLEPLAYER
-      pbSetGameMode(GameMode::SINGLEPLAYER)
-      pbSingleplayerMenu
-
-    when GameMode::MULTIPLAYER
-      pbSetGameMode(GameMode::MULTIPLAYER)
-      pbMultiplayerMenu
-
-    else
-      $scene = pbCallTitle
-      return
-    end
+    # Multiplayer-only mode - skip game mode selection and go directly to multiplayer
+    pbSetGameMode(GameMode::MULTIPLAYER)
+    pbMultiplayerMenu
   end
 
   def pbSingleplayerMenu
