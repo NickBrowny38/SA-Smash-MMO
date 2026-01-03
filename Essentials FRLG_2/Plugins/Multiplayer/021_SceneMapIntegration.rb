@@ -23,18 +23,22 @@ def mmo_create_following_pokemon
 
   # Check if a follower already exists - reset position to prevent desync on relog
   if FollowingPkmn.respond_to?(:get) && FollowingPkmn.get
-    follower = FollowingPkmn.get
-    follower.instance_variable_set(:@last_leader_x, $game_player.x)
-    follower.instance_variable_set(:@last_leader_y, $game_player.y)
-    follower.instance_variable_set(:@move_route_forcing, false)
-    follower.moveto(behind_x, behind_y)
-    follower.instance_variable_set(:@real_x, behind_x * Game_Map::REAL_RES_X)
-    follower.instance_variable_set(:@real_y, behind_y * Game_Map::REAL_RES_Y)
-    follower.straighten if follower.respond_to?(:straighten)
-    $PokemonGlobal.follower_toggled = true
-    FollowingPkmn.refresh(true) if FollowingPkmn.respond_to?(:refresh)
-    puts "[Following] Follower position reset after relog"
-    return
+    result = FollowingPkmn.get
+    # FollowingPkmn.get returns [event, data] array - we want the event
+    follower = result.is_a?(Array) ? result[0] : result
+    if follower && follower.respond_to?(:moveto)
+      follower.instance_variable_set(:@last_leader_x, $game_player.x)
+      follower.instance_variable_set(:@last_leader_y, $game_player.y)
+      follower.instance_variable_set(:@move_route_forcing, false)
+      follower.moveto(behind_x, behind_y)
+      follower.instance_variable_set(:@real_x, behind_x * Game_Map::REAL_RES_X)
+      follower.instance_variable_set(:@real_y, behind_y * Game_Map::REAL_RES_Y)
+      follower.straighten if follower.respond_to?(:straighten)
+      $PokemonGlobal.follower_toggled = true
+      FollowingPkmn.refresh(true) if FollowingPkmn.respond_to?(:refresh)
+      puts "[Following] Follower position reset after relog"
+      return
+    end
   end
 
   # Get the first Pokemon for the follower sprite
