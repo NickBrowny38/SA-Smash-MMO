@@ -191,18 +191,27 @@ class Scene_Map
 
       if $multiplayer_chat
 
+        # T key: Open chat input (with history mode)
         if Input.triggerex?(0x54)
           $multiplayer_chat.open_input
         end
 
+        # Forward slash: Open chat with "/" prefix
         if Input.triggerex?(0xBF)
           pbOpenMultiplayerChat("/")
         end
 
+        # Y key: Toggle history view mode (like Minecraft - view only, no input)
+        if Input.triggerex?(0x59)
+          $multiplayer_chat.toggle_history_mode
+        end
+
+        # H key: Toggle chat visibility completely
         if Input.triggerex?(0x48)
           $multiplayer_chat.toggle_chat
         end
 
+        # Shift + Arrow keys: Scroll through chat history
         if Input.press?(Input::SHIFT)
           if Input.trigger?(Input::UP)
             $multiplayer_chat.scroll_up

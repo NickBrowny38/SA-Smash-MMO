@@ -4,9 +4,41 @@ class Scene_Map
   attr_accessor :mmo_key_items_bar
 
   def initialize_mmo_ui
-    return if @mmo_ui_initialized
+    # Check if already properly initialized with valid UI components
+    if @mmo_ui_initialized &&
+       @mmo_ui_overlay && !@mmo_ui_overlay.disposed? &&
+       @mmo_party_ui && !@mmo_party_ui.disposed? &&
+       @mmo_key_items_bar && !@mmo_key_items_bar.disposed?
+      puts '[MMO UI] Already initialized with valid components - skipping'
+      return
+    end
 
     puts '[MMO UI] Initializing MMO UI overlay...'
+
+    # Dispose existing UI first to prevent duplicates
+    if @mmo_ui_overlay && !@mmo_ui_overlay.disposed?
+      puts '[MMO UI] Disposing old overlay before creating new one'
+      @mmo_ui_overlay.dispose
+    end
+    if @mmo_party_ui && !@mmo_party_ui.disposed?
+      puts '[MMO UI] Disposing old party UI before creating new one'
+      @mmo_party_ui.dispose
+    end
+    if @mmo_key_items_bar && !@mmo_key_items_bar.disposed?
+      puts '[MMO UI] Disposing old key items bar before creating new one'
+      @mmo_key_items_bar.dispose
+    end
+
+    # Also dispose global references if they exist
+    if $mmo_ui_overlay && $mmo_ui_overlay != @mmo_ui_overlay && !$mmo_ui_overlay.disposed?
+      $mmo_ui_overlay.dispose
+    end
+    if $mmo_party_ui && $mmo_party_ui != @mmo_party_ui && !$mmo_party_ui.disposed?
+      $mmo_party_ui.dispose
+    end
+    if $mmo_key_items_bar && $mmo_key_items_bar != @mmo_key_items_bar && !$mmo_key_items_bar.disposed?
+      $mmo_key_items_bar.dispose
+    end
 
     @mmo_ui_overlay = MMOUIOverlay.new
     @mmo_party_ui = MMOPartyUI.new

@@ -292,6 +292,9 @@ class MMOPartyUI
 
     return unless $player.party[slot1] && $player.party[slot2]
 
+    # Check if first slot is involved (affects following pokemon)
+    first_slot_changed = (slot1 == 0 || slot2 == 0)
+
     $player.party[slot1], $player.party[slot2] = $player.party[slot2], $player.party[slot1]
 
     EventHandlers.trigger(:on_party_changed)
@@ -303,6 +306,41 @@ class MMOPartyUI
 
     pbSEPlay("GUI party switch")
     puts "[MMO Party UI] Swapped Pokemon #{slot1} <-> #{slot2}"
+
+    # Update following pokemon if first slot changed
+    if first_slot_changed
+      update_following_pokemon_after_swap
+    end
+  end
+
+  def update_following_pokemon_after_swap
+    return unless defined?(FollowingPkmn)
+    return unless $player && $player.party && $player.party.length > 0
+    return unless $PokemonGlobal && $PokemonGlobal.respond_to?(:follower_toggled) && $PokemonGlobal.follower_toggled
+
+    puts "[MMO Party UI] First slot changed - updating following pokemon"
+
+    # Refresh the local follower sprite
+    begin
+      FollowingPkmn.refresh(true) if FollowingPkmn.respond_to?(:refresh)
+    rescue => e
+      puts "[MMO Party UI] Error refreshing follower: #{e.message}"
+    end
+
+    # Force position update to notify remote players of follower change
+    if defined?($multiplayer_client) && $multiplayer_client && $multiplayer_client.connected?
+      # Clear the last sent follower to force an update
+      if $multiplayer_client.respond_to?(:last_sent_follower_species=)
+        $multiplayer_client.instance_variable_set(:@last_sent_follower_species, nil)
+      end
+      # Clear last position state to force sending new data
+      if $multiplayer_client.respond_to?(:last_position_state)
+        $multiplayer_client.instance_variable_set(:@last_position_state, nil)
+      end
+      # Send immediate position update with new follower
+      $multiplayer_client.send_position_update if $multiplayer_client.respond_to?(:send_position_update)
+      puts "[MMO Party UI] Sent follower update to server"
+    end
   end
 
   def handle_mouse_click(x, y, button)
