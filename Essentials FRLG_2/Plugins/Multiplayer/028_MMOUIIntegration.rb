@@ -13,6 +13,14 @@ class Scene_Map
       return
     end
 
+    # Prevent rapid re-initialization (cooldown of 30 frames)
+    @mmo_ui_init_cooldown ||= 0
+    if @mmo_ui_init_cooldown > 0
+      @mmo_ui_init_cooldown -= 1
+      return
+    end
+    @mmo_ui_init_cooldown = 30
+
     puts '[MMO UI] Initializing MMO UI overlay...'
 
     # Dispose existing UI first to prevent duplicates
