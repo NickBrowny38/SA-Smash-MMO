@@ -26,6 +26,12 @@ class MultiplayerBattleManager
     $multiplayer_battle_forfeited = false
     $multiplayer_opponent_choice_received = false
     $multiplayer_opponent_choice_data = nil
+    $multiplayer_battle_ended_as_draw = false
+    $multiplayer_battle_draw_requested = false
+    $multiplayer_battle_draw_request_received = false
+    $multiplayer_battle_draw_response_received = false
+    $multiplayer_battle_draw_response_accepted = false
+    $multiplayer_battle_draw_confirmed = false
 
     puts "[MP BATTLE] Starting SYNCHRONIZED battle ##{battle_id}"
     puts "[MP BATTLE] RNG Seed: #{rng_seed}, Is Host: #{is_host}"
@@ -124,9 +130,18 @@ class MultiplayerBattleManager
 
       puts "[MP BATTLE] Battle aborted: #{e.message}"
 
-      decision = 1
-      battle_result = true
-      skip_final_message = true
+      if $multiplayer_battle_ended_as_draw
+        # Draw - no winner or loser
+        puts "[MP BATTLE] Battle ended as a draw"
+        decision = 0
+        battle_result = nil  # nil = draw (not win, not loss)
+        skip_final_message = true
+      else
+        # Normal abort (forfeit, disconnect, timeout)
+        decision = 1
+        battle_result = true
+        skip_final_message = true
+      end
 
       begin
         BattleCreationHelperMethods.after_battle(decision, true)
@@ -169,7 +184,10 @@ class MultiplayerBattleManager
       end
     end
 
-    if pbMultiplayerConnected?
+    if $multiplayer_battle_ended_as_draw
+      # Draw was already handled by the server - no result to report
+      puts "[MP BATTLE] Draw - server already processed, no result to report"
+    elsif pbMultiplayerConnected?
       begin
         my_client_id  =  $multiplayer_client.client_id
         if battle_result
@@ -189,9 +207,10 @@ class MultiplayerBattleManager
     if !skip_final_message
       if battle_result
         pbMessage(_INTL('Victory!\\nYou won the battle against {1}!', opponent_name))
-      else
+      elsif battle_result == false
         pbMessage(_INTL("Defeat!\\nYou lost the battle against {1}.", opponent_name))
       end
+      # battle_result == nil means draw - message already shown in battle
     end
 
     puts "[MP BATTLE] Healing all Pokemon after PvP battle..."

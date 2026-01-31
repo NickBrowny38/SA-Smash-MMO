@@ -384,6 +384,12 @@ class MultiplayerServer
     when :battle_forfeit, "battle_forfeit"
       handle_battle_forfeit_request(client_id, message[:data])
 
+    when :battle_draw_request, "battle_draw_request"
+      handle_battle_draw_request(client_id, message[:data])
+
+    when :battle_draw_response, "battle_draw_response"
+      handle_battle_draw_response(client_id, message[:data])
+
     when :battle_complete, "battle_complete"
       handle_battle_complete(client_id, message[:data])
 
@@ -2110,18 +2116,189 @@ class MultiplayerServer
       @logger.info "[BATTLE FORFEIT] Notified opponent #{opponent_id} of forfeit"
     end
 
-    # Process battle result (opponent wins, forfeiting player loses)
+    # Process ELO changes (opponent wins, forfeiting player loses)
     if opponent_client && opponent_client[:player_id] && client_info && client_info[:player_id]
       begin
-        update_battle_result(opponent_client[:player_id], client_info[:player_id])
-        @logger.info "[BATTLE FORFEIT] Battle result recorded: #{opponent_client[:username]} wins, #{username} loses"
+        winner_player_id = opponent_client[:player_id]
+        loser_player_id = client_info[:player_id]
+
+        winner_elo = get_player_elo(winner_player_id)
+        loser_elo = get_player_elo(loser_player_id)
+
+        k_factor = ServerConfig::ELO_K_FACTOR
+        expected_winner = 1.0 / (1.0 + 10.0 ** ((loser_elo - winner_elo) / 400.0))
+        expected_loser = 1.0 / (1.0 + 10.0 ** ((winner_elo - loser_elo) / 400.0))
+
+        winner_change = (k_factor * (1.0 - expected_winner)).round
+        loser_change = (k_factor * (0.0 - expected_loser)).round
+
+        new_winner_elo = winner_elo + winner_change
+        new_loser_elo = loser_elo + loser_change
+
+        update_battle_stats(winner_player_id, new_winner_elo, true)
+        update_battle_stats(loser_player_id, new_loser_elo, false)
+
+        @logger.info "[BATTLE FORFEIT] ELO: #{opponent_client[:username]}: #{winner_elo} -> #{new_winner_elo} (+#{winner_change})"
+        @logger.info "[BATTLE FORFEIT] ELO: #{username}: #{loser_elo} -> #{new_loser_elo} (#{loser_change})"
+
+        # Send ELO updates to both players
+        send_to_client(opponent_id, {
+          type: "elo_update",
+          data: {
+            old_elo: winner_elo,
+            new_elo: new_winner_elo,
+            change: winner_change,
+            result: "win",
+            opponent: username
+          }
+        })
+
+        send_to_client(client_id, {
+          type: "elo_update",
+          data: {
+            old_elo: loser_elo,
+            new_elo: new_loser_elo,
+            change: loser_change,
+            result: "loss",
+            opponent: opponent_client[:username]
+          }
+        })
       rescue => e
-        @logger.error "[BATTLE FORFEIT] Failed to record battle result: #{e.message}"
+        @logger.error "[BATTLE FORFEIT] Failed to process ELO: #{e.message}"
       end
     end
 
     # Remove battle from active battles
     @active_battles.delete(battle_id) if @active_battles[battle_id]
+  end
+
+  # ============================================================================
+  # Draw/Tie Request Handlers
+  # ============================================================================
+
+  def handle_battle_draw_request(client_id, data)
+    battle_id = data[:battle_id] || data['battle_id']
+    opponent_id = data[:opponent_id] || data['opponent_id']
+    username = data[:username] || data['username'] || "Unknown Player"
+
+    battle = @active_battles[battle_id]
+    unless battle
+      @logger.warn "[BATTLE DRAW] Draw request for unknown battle ##{battle_id}"
+      return
+    end
+
+    @logger.info "[BATTLE DRAW] Battle ##{battle_id}: #{username} is requesting a draw"
+
+    # Track draw requester on the battle
+    battle[:draw_requester] = client_id
+
+    # Forward draw request to opponent
+    if @clients[opponent_id]
+      send_to_client(opponent_id, {
+        type: "battle_draw_request",
+        data: {
+          battle_id: battle_id,
+          requester_username: username
+        }
+      })
+      @logger.info "[BATTLE DRAW] Forwarded draw request to opponent #{opponent_id}"
+    end
+  end
+
+  def handle_battle_draw_response(client_id, data)
+    battle_id = data[:battle_id] || data['battle_id']
+    opponent_id = data[:opponent_id] || data['opponent_id']
+    accepted = data[:accepted] || data['accepted']
+
+    battle = @active_battles[battle_id]
+    unless battle
+      @logger.warn "[BATTLE DRAW] Draw response for unknown battle ##{battle_id}"
+      return
+    end
+
+    requester_id = battle[:draw_requester]
+    unless requester_id
+      @logger.warn "[BATTLE DRAW] Draw response but no requester tracked for battle ##{battle_id}"
+      return
+    end
+
+    if accepted
+      @logger.info "[BATTLE DRAW] Battle ##{battle_id}: Draw ACCEPTED"
+
+      # Get both player ELOs for the notification (no change)
+      player1_elo = 1000
+      player2_elo = 1000
+      player1_username = "Player 1"
+      player2_username = "Player 2"
+
+      if @clients[battle[:player1_id]]
+        player1_username = @clients[battle[:player1_id]][:username] || player1_username
+        if @clients[battle[:player1_id]][:player_id]
+          player1_elo = get_player_elo(@clients[battle[:player1_id]][:player_id])
+        end
+      end
+
+      if @clients[battle[:player2_id]]
+        player2_username = @clients[battle[:player2_id]][:username] || player2_username
+        if @clients[battle[:player2_id]][:player_id]
+          player2_elo = get_player_elo(@clients[battle[:player2_id]][:player_id])
+        end
+      end
+
+      # Send draw confirmation to BOTH players
+      send_to_client(battle[:player1_id], {
+        type: "battle_draw",
+        data: { battle_id: battle_id }
+      })
+
+      send_to_client(battle[:player2_id], {
+        type: "battle_draw",
+        data: { battle_id: battle_id }
+      })
+
+      # Send ELO updates with 0 change for both players
+      send_to_client(battle[:player1_id], {
+        type: "elo_update",
+        data: {
+          old_elo: player1_elo,
+          new_elo: player1_elo,
+          change: 0,
+          result: "draw",
+          opponent: player2_username
+        }
+      })
+
+      send_to_client(battle[:player2_id], {
+        type: "elo_update",
+        data: {
+          old_elo: player2_elo,
+          new_elo: player2_elo,
+          change: 0,
+          result: "draw",
+          opponent: player1_username
+        }
+      })
+
+      @logger.info "[BATTLE DRAW] Draw processed - no ELO changes"
+      @logger.info "[BATTLE DRAW] #{player1_username}: #{player1_elo} (no change)"
+      @logger.info "[BATTLE DRAW] #{player2_username}: #{player2_elo} (no change)"
+
+      # End the battle
+      end_battle(battle_id)
+    else
+      @logger.info "[BATTLE DRAW] Battle ##{battle_id}: Draw DECLINED"
+
+      # Clear draw requester
+      battle[:draw_requester] = nil
+
+      # Notify the requester that draw was declined
+      if @clients[requester_id]
+        send_to_client(requester_id, {
+          type: "battle_draw_declined",
+          data: { battle_id: battle_id }
+        })
+      end
+    end
   end
 
   def states_match?(state1, state2)
