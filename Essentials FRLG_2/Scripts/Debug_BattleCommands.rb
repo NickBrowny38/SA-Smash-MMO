@@ -410,7 +410,7 @@ MenuHandlers.add(:battle_debug_menu, :backdrop, {
       when 0   # Backdrop
         text = pbMessageFreeText("\\ts[]" + _INTL("Set the backdrop's name."),
                                  battle.backdrop, false, 100, Graphics.width)
-        battle.backdrop = (nil_or_empty?(text)) ? "Indoor1" : text
+        battle.backdrop = (nil_or_empty?(text)) ? "interior" : text
       when 1   # Base modifier
         text = pbMessageFreeText("\\ts[]" + _INTL("Set the base modifier text."),
                                  battle.backdropBase, false, 100, Graphics.width)

@@ -660,6 +660,12 @@ class MultiplayerClient
     when "battle_opponent_choice"
       handle_battle_opponent_choice_msg(msg_data)
 
+    when "battle_ready"
+      handle_battle_ready_msg(msg_data)
+
+    when "battle_switch"
+      handle_battle_switch_msg(msg_data)
+
     when "trade_offer"
       puts "[CLIENT DEBUG] Received 'trade_offer' message type"
       handle_trade_offer_received(msg_data)
@@ -732,6 +738,15 @@ class MultiplayerClient
 
     when "battle_forfeit"
       handle_battle_forfeit(msg_data)
+
+    when "battle_draw_request"
+      handle_battle_draw_request(msg_data)
+
+    when "battle_draw_declined"
+      handle_battle_draw_declined(msg_data)
+
+    when "battle_draw"
+      handle_battle_draw(msg_data)
 
     when "admin_give_item"
       handle_admin_give_item(msg_data)
@@ -1444,6 +1459,55 @@ class MultiplayerClient
     }))
   end
 
+  def send_battle_ready(battle_id, opponent_id, rng_seed)
+    return unless @connected
+    send_message(MultiplayerProtocol.create_message('battle_ready', {
+      battle_id: battle_id,
+      opponent_id: opponent_id,
+      rng_seed: rng_seed
+    }))
+  end
+
+  def send_battle_switch(battle_id, opponent_id, battler_index, party_index)
+    return unless @connected
+    send_message(MultiplayerProtocol.create_message('battle_switch', {
+      battle_id: battle_id,
+      opponent_id: opponent_id,
+      battler_index: battler_index,
+      party_index: party_index
+    }))
+  end
+
+  def send_battle_forfeit(battle_id, opponent_id)
+    return unless @connected
+    send_message(MultiplayerProtocol.create_message('battle_forfeit', {
+      battle_id: battle_id,
+      opponent_id: opponent_id,
+      username: $player.name
+    }))
+    puts "[BATTLE FORFEIT] Sent forfeit notification for battle ##{battle_id}"
+  end
+
+  def send_battle_draw_request(battle_id, opponent_id)
+    return unless @connected
+    send_message(MultiplayerProtocol.create_message('battle_draw_request', {
+      battle_id: battle_id,
+      opponent_id: opponent_id,
+      username: $player.name
+    }))
+    puts "[BATTLE DRAW] Sent draw request for battle ##{battle_id}"
+  end
+
+  def send_battle_draw_response(battle_id, opponent_id, accepted)
+    return unless @connected
+    send_message(MultiplayerProtocol.create_message('battle_draw_response', {
+      battle_id: battle_id,
+      opponent_id: opponent_id,
+      accepted: accepted
+    }))
+    puts "[BATTLE DRAW] Sent draw response (accepted: #{accepted}) for battle ##{battle_id}"
+  end
+
   def accept_battle_request(from_id, battle_format = "Single Battle")
     send_battle_accept(from_id, battle_format)
   end
@@ -1614,6 +1678,31 @@ class MultiplayerClient
     end
   end
 
+  def handle_battle_ready_msg(data)
+    battle_id = data[:battle_id] || data['battle_id']
+    rng_seed = data[:rng_seed] || data['rng_seed']
+
+    puts "[BATTLE SYNC] Received opponent's battle ready signal for battle ##{battle_id}, RNG seed: #{rng_seed}"
+
+    if defined?(pbMultiplayerBattleManager)
+      pbMultiplayerBattleManager.receive_opponent_battle_ready(rng_seed)
+    end
+  end
+
+  def handle_battle_switch_msg(data)
+    battle_id = data[:battle_id] || data['battle_id']
+    party_index = data[:party_index] || data['party_index']
+
+    puts "[BATTLE SYNC] Received opponent's switch choice for battle ##{battle_id}: party slot #{party_index}"
+
+    # Set global variables that the battle sync checks for
+    $multiplayer_opponent_switch_received = true
+    $multiplayer_opponent_switch_data = {
+      battle_id: battle_id,
+      party_index: party_index
+    }
+  end
+
   def handle_trade_offer_received(data)
     puts "[CLIENT DEBUG] handle_trade_offer_received called!"
     puts "[CLIENT DEBUG] Data received: #{data.inspect}"
@@ -1760,8 +1849,38 @@ class MultiplayerClient
 
     if defined?(pbMultiplayerBattleManager) && pbMultiplayerBattleManager.active_mp_battle
       puts "[BATTLE FORFEIT] Opponent disconnected - you win by forfeit!"
-
     end
+  end
+
+  def handle_battle_draw_request(data)
+    battle_id = data[:battle_id] || data['battle_id']
+    requester_username = data[:requester_username] || data['requester_username'] || "Opponent"
+
+    puts "[BATTLE DRAW] Battle ##{battle_id}: #{requester_username} is requesting a draw"
+
+    # Set global flag for the battle sync code to detect
+    $multiplayer_battle_draw_request_received = true
+  end
+
+  def handle_battle_draw_declined(data)
+    battle_id = data[:battle_id] || data['battle_id']
+
+    puts "[BATTLE DRAW] Battle ##{battle_id}: Draw request was declined"
+
+    # Set global flags for the battle sync code to detect
+    $multiplayer_battle_draw_response_received = true
+    $multiplayer_battle_draw_response_accepted = false
+  end
+
+  def handle_battle_draw(data)
+    battle_id = data[:battle_id] || data['battle_id']
+
+    puts "[BATTLE DRAW] Battle ##{battle_id}: Draw confirmed by server!"
+
+    # Set global flag - the battle will end as a draw
+    $multiplayer_battle_draw_confirmed = true
+    $multiplayer_battle_draw_response_received = true
+    $multiplayer_battle_draw_response_accepted = true
   end
 
   def request_social_data
@@ -1784,6 +1903,8 @@ class MultiplayerClient
 
     message = if result == "win"
                 sprintf("Victory! ELO: %d → %d (+%d)\nDefeated %s", old_elo, new_elo, change, opponent)
+              elsif result == "draw"
+                sprintf("Draw! ELO: %d (no change)\nDrew with %s", old_elo, opponent)
               else
                 sprintf("Defeat. ELO: %d → %d (%d)\nLost to %s", old_elo, new_elo, change, opponent)
               end

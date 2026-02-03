@@ -26,6 +26,12 @@ class MultiplayerBattleManager
     $multiplayer_battle_forfeited = false
     $multiplayer_opponent_choice_received = false
     $multiplayer_opponent_choice_data = nil
+    $multiplayer_battle_ended_as_draw = false
+    $multiplayer_battle_draw_requested = false
+    $multiplayer_battle_draw_request_received = false
+    $multiplayer_battle_draw_response_received = false
+    $multiplayer_battle_draw_response_accepted = false
+    $multiplayer_battle_draw_confirmed = false
 
     puts "[MP BATTLE] Starting SYNCHRONIZED battle ##{battle_id}"
     puts "[MP BATTLE] RNG Seed: #{rng_seed}, Is Host: #{is_host}"
@@ -58,12 +64,20 @@ class MultiplayerBattleManager
 
     setBattleRule("noExp")
     setBattleRule('noMoney')
+    setBattleRule("setStyle")  # CRITICAL: Disable switch prompt after opponent KO
+    puts "[MP BATTLE] Set battle style enforced - no switch prompts during battle"
 
     puts "[MP BATTLE] Healing player's Pokemon for fair PVP match"
     $player.party.each do |pkmn|
       pkmn.heal if pkmn
     end
-    pbMessage(_INTL("Your Pokémon have been healed for a fair battle!"))
+
+    puts "[MP BATTLE] Healing opponent's Pokemon for fair PVP match"
+    opponent_trainer.party.each do |pkmn|
+      pkmn.heal if pkmn
+    end
+
+    pbMessage(_INTL("All Pokémon have been healed for a fair battle!"))
 
     player_party = $player.party
     scene = BattleCreationHelperMethods.create_battle_scene
@@ -74,11 +88,27 @@ class MultiplayerBattleManager
     battle.multiplayer_is_host = is_host
     battle.multiplayer_turn = 0
 
+    # CRITICAL: Force "Set" battle style to prevent switch prompts after opponent KO
+    # In multiplayer battles, both players must choose simultaneously - no mid-turn prompts
+    battle.instance_variable_set(:@switchStyle, false)
+    puts "[MP BATTLE] Forced Set battle style (no switch prompts after KO)"
+
+    # Set RNG seed for deterministic battle behavior
     srand(rng_seed)
+    puts "[MP BATTLE] Initial RNG seed set to: #{rng_seed}"
 
     apply_multiplayer_battle_patch(battle)
 
     BattleCreationHelperMethods.prepare_battle(battle)
+
+    # Verify battle state synchronization
+    puts "[MP BATTLE] Verifying battle state synchronization..."
+    if !verify_battle_state_sync(battle_id, opponent_id, rng_seed)
+      pbMessage(_INTL("Battle synchronization failed!\\nBattle cancelled."))
+      @active_battle = false
+      return false
+    end
+    puts "[MP BATTLE] Battle state verified and synchronized!"
 
     $game_temp.party_heart_gauges_before_battle = [] if !$game_temp.party_heart_gauges_before_battle
 
@@ -100,9 +130,18 @@ class MultiplayerBattleManager
 
       puts "[MP BATTLE] Battle aborted: #{e.message}"
 
-      decision = 1
-      battle_result = true
-      skip_final_message = true
+      if $multiplayer_battle_ended_as_draw
+        # Draw - no winner or loser
+        puts "[MP BATTLE] Battle ended as a draw"
+        decision = 0
+        battle_result = nil  # nil = draw (not win, not loss)
+        skip_final_message = true
+      else
+        # Normal abort (forfeit, disconnect, timeout)
+        decision = 1
+        battle_result = true
+        skip_final_message = true
+      end
 
       begin
         BattleCreationHelperMethods.after_battle(decision, true)
@@ -145,7 +184,10 @@ class MultiplayerBattleManager
       end
     end
 
-    if pbMultiplayerConnected?
+    if $multiplayer_battle_ended_as_draw
+      # Draw was already handled by the server - no result to report
+      puts "[MP BATTLE] Draw - server already processed, no result to report"
+    elsif pbMultiplayerConnected?
       begin
         my_client_id  =  $multiplayer_client.client_id
         if battle_result
@@ -165,9 +207,10 @@ class MultiplayerBattleManager
     if !skip_final_message
       if battle_result
         pbMessage(_INTL('Victory!\\nYou won the battle against {1}!', opponent_name))
-      else
+      elsif battle_result == false
         pbMessage(_INTL("Defeat!\\nYou lost the battle against {1}.", opponent_name))
       end
+      # battle_result == nil means draw - message already shown in battle
     end
 
     puts "[MP BATTLE] Healing all Pokemon after PvP battle..."
@@ -195,5 +238,64 @@ class MultiplayerBattleManager
 
   def active_mp_battle
     @active_battle
+  end
+
+  def verify_battle_state_sync(battle_id, opponent_id, rng_seed)
+    return true unless pbMultiplayerConnected?
+
+    begin
+      puts "[MP SYNC] Sending battle ready signal with RNG seed: #{rng_seed}"
+
+      # Send ready signal with our RNG seed to opponent
+      $multiplayer_client.send_battle_ready(battle_id, opponent_id, rng_seed)
+
+      # Wait for opponent ready signal (with timeout)
+      timeout = 300  # 15 seconds
+      $multiplayer_opponent_battle_ready = false
+      $multiplayer_opponent_rng_seed = nil
+
+      while timeout > 0 && !$multiplayer_opponent_battle_ready
+        sleep(0.05)
+        timeout -= 1
+
+        # Update network
+        begin
+          $multiplayer_client.update if pbMultiplayerConnected?
+        rescue => e
+          puts "[MP SYNC] Network error during ready check: #{e.message}"
+          return false
+        end
+
+        # Check connection
+        if !pbMultiplayerConnected?
+          puts "[MP SYNC] Connection lost during ready check"
+          return false
+        end
+      end
+
+      if timeout <= 0
+        puts "[MP SYNC] Timeout waiting for opponent ready signal"
+        return false
+      end
+
+      # Verify RNG seeds match
+      if $multiplayer_opponent_rng_seed != rng_seed
+        puts "[MP SYNC] RNG seed mismatch! Ours: #{rng_seed}, Theirs: #{$multiplayer_opponent_rng_seed}"
+        return false
+      end
+
+      puts "[MP SYNC] Battle state verified - both players ready with matching RNG seed"
+      return true
+
+    rescue => e
+      puts "[MP SYNC] Error during battle state verification: #{e.message}"
+      return false
+    end
+  end
+
+  def receive_opponent_battle_ready(rng_seed)
+    puts "[MP SYNC] Received opponent battle ready signal with RNG seed: #{rng_seed}"
+    $multiplayer_opponent_battle_ready = true
+    $multiplayer_opponent_rng_seed = rng_seed
   end
 end
